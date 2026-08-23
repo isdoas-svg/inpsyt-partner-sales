@@ -142,7 +142,7 @@ def format_korean_currency(val):
 # 2. 페이지 기본 설정 및 세션 초기화
 # -----------------------------------------------------------------------------
 st.set_page_config(
-    page_title="기관별 매출 분석 시스템", page_icon="📊", layout="wide"
+    page_title="인싸이트 지사 매출 확인", page_icon="📊", layout="wide"
 )
 
 st.markdown(
@@ -224,7 +224,7 @@ def login_screen():
     _, center_col, _ = st.columns([3.75, 2.5, 3.75])
     
     with center_col:
-        st.markdown("<h2 style='text-align: center;'>🔒 로그인</h2>", unsafe_allow_html=True)
+        st.markdown("<h2 style='text-align: center;'>인싸이트 지사 매출 페이지</h2>", unsafe_allow_html=True)
         st.markdown("---")
         
         username = st.text_input("아이디 (ID)", key="login_username_input").strip()
