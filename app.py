@@ -224,7 +224,7 @@ def login_screen():
     _, center_col, _ = st.columns([3.75, 2.5, 3.75])
     
     with center_col:
-        st.markdown("<h2 style='text-align: center;'>인싸이트 지사 매출 페이지</h2>", unsafe_allow_html=True)
+        st.markdown("<h2 style='text-align: center;'>인싸이트 지사 매출</h2>", unsafe_allow_html=True)
         st.markdown("---")
         
         username = st.text_input("아이디 (ID)", key="login_username_input").strip()
