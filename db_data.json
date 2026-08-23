@@ -1,0 +1,51 @@
+{
+    "orgs_db": {
+        "ORG_A": {
+            "org_name": "성남천재교육"
+        },
+        "ORG_B": {
+            "org_name": "부산 초등"
+        },
+        "ORG_C": {
+            "org_name": "인싸이트에듀"
+        }
+    },
+    "user_db": {
+        "admin": {
+            "password": "1234",
+            "role": "super_admin",
+            "org_code": "ALL",
+            "org_name": "전체(총 관리자)"
+        },
+        "aimee": {
+            "password": "1234",
+            "role": "hq_admin",
+            "org_code": "ALL"
+        },
+        "abcd": {
+            "password": "1234",
+            "role": "user",
+            "org_code": "ORG_A"
+        },
+        "efgh": {
+            "password": "5678",
+            "role": "user",
+            "org_code": "ORG_B"
+        },
+        "ijkl": {
+            "password": "91011",
+            "role": "user",
+            "org_code": "ORG_C"
+        },
+        "jcha": {
+            "password": "1111",
+            "role": "hq_admin",
+            "org_code": "ALL"
+        }
+    },
+    "targets_db": {
+        "ORG_A_2026": 150000000,
+        "ORG_B_2026": 180000000,
+        "ORG_C_2026": 200000000
+    }
+}
