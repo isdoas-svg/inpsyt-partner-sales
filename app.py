@@ -268,7 +268,6 @@ def admin_account_page():
 
     current_role = st.session_state["user_info"]["role"]
 
-    # 계정 삭제 탭을 마지막에 추가
     tab_reg, tab_edit_user, tab_edit_org, tab_delete_user = st.tabs([
         "➕ 계정 신규 등록",
         "✏️ 계정/비밀번호 수정",
@@ -295,19 +294,19 @@ def admin_account_page():
                 c1, c2 = st.columns(2)
                 with c1:
                     if role_type == "🏢 일반 지사 회원":
-                        new_org_code = st.text_input("기관 고유코드", placeholder="예: ORG_004")
+                        new_org_code = st.text_input("기관 고유코드", placeholder="예: ORG_004").strip()
                     else:
                         new_org_code = "ALL"
                         st.info("💡 관리자 전용 기관코드 (ALL)")
-                    new_id = st.text_input("로그인 아이디 (ID)", placeholder="예: admin2 또는 org_d")
+                    new_id = st.text_input("로그인 아이디 (ID)", placeholder="예: admin2 또는 org_d").strip()
                 
                 with c2:
                     if role_type == "🏢 일반 지사 회원":
-                        new_org_name = st.text_input("기관 표시명", placeholder="예: D기관")
+                        new_org_name = st.text_input("기관 표시명", placeholder="예: D기관").strip()
                     else:
                         new_org_name = "전체(관리자)"
                         st.info("💡 관리자 전용 기관명")
-                    new_pw = st.text_input("비밀번호 (Password)", type="password")
+                    new_pw = st.text_input("비밀번호 (Password)", type="password").strip()
 
                 submit_add = st.form_submit_button("신규 계정 생성", use_container_width=True)
 
@@ -428,14 +427,10 @@ def admin_account_page():
                         st.success(f"기관명이 **'{current_name}'** ➡️ **'{new_name_clean}'**(으)로 변경 및 영구 저장되었습니다.")
                         st.rerun()
 
-    # -------------------------------------------------------------
-    # 추가된 계정 삭제 탭
-    # -------------------------------------------------------------
     with tab_delete_user:
         st.subheader("계정 삭제")
         st.caption("삭제하려는 계정 아이디(ID)를 검색/선택한 후 삭제를 진행할 수 있습니다.")
 
-        # 권한별 삭제 대상 계정 정의
         if current_role == "super_admin":
             deletable_users = list(st.session_state["user_db"].keys())
         else:
@@ -534,7 +529,7 @@ def admin_organization_page():
 
 
 # -----------------------------------------------------------------------------
-# 7. Target 설정 (입력 칸 너비 50% 축소 및 좌측 밀착 수정)
+# 7. Target 설정
 # -----------------------------------------------------------------------------
 def admin_target_page():
     st.title("🎯 지사 목표 매출 등록")
@@ -576,7 +571,6 @@ def admin_target_page():
             st.session_state[input_key] = f"{curr_target:,}" if curr_target > 0 else "0"
             st.session_state[kr_key] = format_korean_currency_detail(curr_target)
 
-        # 입력 칸의 비율을 기존 2에서 1.0(50%)으로 축소하고 좌측 밀착 비율로 컬럼 배치 조정
         col_title, col_input, col_kr, col_btn, _ = st.columns([1.8, 1.0, 2.2, 0.8, 4.2])
 
         with col_title:
@@ -656,13 +650,31 @@ def admin_upload_page():
                     else:
                         new_df = pd.read_excel(uploaded_file)
 
-                    req_cols = {"년도", "월", "기관", "매출금액"}
-                    if not req_cols.issubset(set(new_df.columns)):
+                    # 기관코드/기관 컬럼 유연한 대처
+                    # '기관코드'가 없거나 컬럼명이 다른 경우를 파악하기 위한 수정을 포함합니다.
+                    if "기관코드" not in new_df.columns:
+                        # 고유코드 컬럼명이 다르게 설정되었을 경우 변경 처리 (예: 지사코드, 코드)
+                        for code_col in ["지사코드", "고유코드", "code", "org_code"]:
+                            if code_col in new_df.columns:
+                                new_df.rename(columns={code_col: "기관코드"}, inplace=True)
+                                break
+
+                    req_cols = {"년도", "월", "매출금액"}
+                    if not req_cols.issubset(set(new_df.columns)) or ("기관코드" not in new_df.columns and "기관" not in new_df.columns):
                         st.error(
-                            f"필수 컬럼({req_cols})이 엑셀에 포함되어 있어야 합니다."
+                            f"필수 컬럼(년도, 월, 매출금액 및 기관코드/기관명)이 엑셀에 포함되어 있어야 합니다."
                         )
                     else:
-                        # 1. 업로드한 엑셀 파일 내에서 동일한 (년도, 월, 기관코드, 기관) 데이터를 자동 합산
+                        # [핵심] 고유코드 기준으로 기관명을 시스템 공식 명칭으로 자동 보정
+                        orgs_db = st.session_state["orgs_db"]
+                        
+                        if "기관코드" in new_df.columns:
+                            new_df["기관코드"] = new_df["기관코드"].astype(str).str.strip()
+                            # 시스템 DB에 설정된 명칭으로 기관명 변경 (엑셀과 상이하더라도 수정을 통합함)
+                            new_df["기관"] = new_df["기관코드"].apply(
+                                lambda code: orgs_db.get(code, {}).get("org_name", "미지정 기관")
+                            )
+
                         group_cols = [
                             col
                             for col in ["년도", "월", "기관코드", "기관"]
@@ -675,7 +687,6 @@ def admin_upload_page():
                             .sum()
                         )
 
-                        # 2. 기존 데이터와 합쳐서 동일 조건 데이터 통합 합산 처리
                         curr_acc = st.session_state["df_accumulated"]
                         if curr_acc is None or curr_acc.empty:
                             merged_df = new_df
@@ -818,7 +829,7 @@ def admin_upload_page():
                     if reset_submit:
                         admin_actual_pw = st.session_state["user_db"]["admin"]["password"]
                         if admin_pw_confirm == admin_actual_pw:
-                            st.session_state["df_accumulated"] = pd.DataFrame(columns=["년도", "월", "기관", "매출금액"])
+                            st.session_state["df_accumulated"] = pd.DataFrame(columns=["년도", "월", "기관코드", "기관", "매출금액"])
                             st.success("모든 매출 데이터가 초기화되었습니다.")
                             st.rerun()
                         else:
@@ -929,13 +940,20 @@ def render_dashboard_content(df_raw, user):
     else:
         st.subheader(f"🏢 {user['org_name']} 매출 분석")
 
-        if "기관코드" in df_raw.columns and user["org_code"] != "ALL":
-            filtered_df = df_raw[df_raw["기관코드"] == user["org_code"]]
+        # =========================================================================
+        # [핵심 변경] 기관명 불일치 해결: 기관명이 아닌 오직 '기관코드' 기준 데이터 조회
+        # =========================================================================
+        if "기관코드" in df_raw.columns:
+            # 1. 고유코드(org_code) 기준으로 데이터를 엄격히 필터링
+            filtered_df = df_raw[df_raw["기관코드"].astype(str).str.strip() == str(user["org_code"]).strip()].copy()
+            # 2. 엑셀의 기관명이 달라도 화면에는 시스템에 등록된 공식 '기관명'으로 표기
+            filtered_df["기관"] = user["org_name"]
         else:
+            # 혹시 기관코드 컬럼이 아예 존재하지 않는 구형 데이터 프레임 대비용 fallback
             filtered_df = df_raw[df_raw["기관"] == user["org_name"]]
 
         if filtered_df.empty:
-            st.warning(f"등록된 '{user['org_name']}'의 매출 데이터가 없습니다. 관리자에게 문의해 주세요.")
+            st.warning(f"등록된 [{user['org_code']}] 코드({user['org_name']})의 매출 데이터가 없습니다. 관리자에게 문의해 주세요.")
             return
 
     st.markdown("---")
