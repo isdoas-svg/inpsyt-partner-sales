@@ -590,14 +590,42 @@ def admin_upload_page():
 
                     req_cols = {"년도", "월", "기관", "매출금액"}
                     if not req_cols.issubset(set(new_df.columns)):
-                        st.error(f"필수 컬럼({req_cols})이 엑셀에 포함되어 있어야 합니다.")
+                        st.error(
+                            f"필수 컬럼({req_cols})이 엑셀에 포함되어 있어야 합니다."
+                        )
                     else:
+                        # 1. 업로드한 엑셀 파일 내에서 동일한 (년도, 월, 기관코드, 기관) 데이터를 자동 합산
+                        group_cols = [
+                            col
+                            for col in ["년도", "월", "기관코드", "기관"]
+                            if col in new_df.columns
+                        ]
+                        new_df = (
+                            new_df.groupby(group_cols, as_index=False)[
+                                "매출금액"
+                            ]
+                            .sum()
+                        )
+
+                        # 2. 기존 데이터와 합쳐서 동일 조건 데이터 통합 합산 처리
                         curr_acc = st.session_state["df_accumulated"]
                         if curr_acc is None or curr_acc.empty:
                             merged_df = new_df
                         else:
-                            combined = pd.concat([curr_acc, new_df], ignore_index=True)
-                            merged_df = combined.drop_duplicates(subset=["년도", "월", "기관"], keep="first")
+                            combined = pd.concat(
+                                [curr_acc, new_df], ignore_index=True
+                            )
+                            acc_group_cols = [
+                                col
+                                for col in ["년도", "월", "기관코드", "기관"]
+                                if col in combined.columns
+                            ]
+                            merged_df = (
+                                combined.groupby(
+                                    acc_group_cols, as_index=False
+                                )["매출금액"]
+                                .sum()
+                            )
 
                         st.session_state["df_accumulated"] = merged_df
                         st.success(f"🎉 데이터 업로드가 완료되었습니다! (현재 총 {len(merged_df):,}건 누적 보관 중)")
