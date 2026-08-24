@@ -268,10 +268,12 @@ def admin_account_page():
 
     current_role = st.session_state["user_info"]["role"]
 
-    tab_reg, tab_edit_user, tab_edit_org = st.tabs([
+    # 계정 삭제 탭을 마지막에 추가
+    tab_reg, tab_edit_user, tab_edit_org, tab_delete_user = st.tabs([
         "➕ 계정 신규 등록",
         "✏️ 계정/비밀번호 수정",
         "🏢 기관명 변경",
+        "🗑️ 계정 삭제",
     ])
 
     with tab_reg:
@@ -425,6 +427,72 @@ def admin_account_page():
                         save_persistent_db()
                         st.success(f"기관명이 **'{current_name}'** ➡️ **'{new_name_clean}'**(으)로 변경 및 영구 저장되었습니다.")
                         st.rerun()
+
+    # -------------------------------------------------------------
+    # 추가된 계정 삭제 탭
+    # -------------------------------------------------------------
+    with tab_delete_user:
+        st.subheader("계정 삭제")
+        st.caption("삭제하려는 계정 아이디(ID)를 검색/선택한 후 삭제를 진행할 수 있습니다.")
+
+        # 권한별 삭제 대상 계정 정의
+        if current_role == "super_admin":
+            deletable_users = list(st.session_state["user_db"].keys())
+        else:
+            deletable_users = [
+                uid for uid, uinfo in st.session_state["user_db"].items()
+                if uinfo.get("role") == "user"
+            ]
+
+        if not deletable_users:
+            st.info("삭제할 수 있는 계정이 존재하지 않습니다.")
+        else:
+            del_form_col, _ = st.columns([5.5, 4.5])
+            with del_form_col:
+                search_query = st.text_input("🔍 아이디 검색", placeholder="검색할 아이디 입력...", key="search_user_del_input").strip()
+
+                if search_query:
+                    matched_users = [uid for uid in deletable_users if search_query.lower() in uid.lower()]
+                else:
+                    matched_users = deletable_users
+
+                if not matched_users:
+                    st.warning(f"'{search_query}' 검색어와 일치하는 계정이 없습니다.")
+                else:
+                    selected_del_user = st.selectbox(
+                        "삭제할 계정 선택",
+                        matched_users,
+                        key="selected_del_user_selectbox"
+                    )
+
+                    user_info_to_del = st.session_state["user_db"][selected_del_user]
+                    del_role = user_info_to_del.get("role", "user")
+                    del_org_code = user_info_to_del.get("org_code", "ALL")
+                    
+                    if del_role == "super_admin":
+                        del_org_name = "전체(총 관리자)"
+                    elif del_role == "hq_admin":
+                        del_org_name = "전체(본사 관리자)"
+                    else:
+                        del_org_name = st.session_state["orgs_db"].get(del_org_code, {}).get("org_name", "미지정 기관")
+
+                    role_label_map = {"super_admin": "총 관리자", "hq_admin": "본사 관리자", "user": "지사 회원"}
+
+                    st.markdown("---")
+                    st.markdown(f"**선택된 계정 정보**")
+                    st.write(f"- **아이디**: `{selected_del_user}`")
+                    st.write(f"- **권한**: {role_label_map.get(del_role, del_role)}")
+                    st.write(f"- **소속 기관**: {del_org_name} ({del_org_code})")
+
+                    if selected_del_user == st.session_state["user_info"]["username"]:
+                        st.error("⚠️ 현재 로그인 중인 계정은 삭제할 수 없습니다.")
+                    else:
+                        st.warning("⚠️ 삭제된 계정 정보는 복구할 수 없습니다.")
+                        if st.button("🚨 해당 계정 삭제", type="primary", use_container_width=True):
+                            st.session_state["user_db"].pop(selected_del_user)
+                            save_persistent_db()
+                            st.success(f"계정 **'{selected_del_user}'** 이(가) 성공적으로 삭제되었습니다.")
+                            st.rerun()
 
 
 # -----------------------------------------------------------------------------
