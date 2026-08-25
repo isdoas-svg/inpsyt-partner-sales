@@ -1,6 +1,5 @@
 import io
 import os
-import json
 import pandas as pd
 import numpy as np
 import plotly.express as px
@@ -8,7 +7,7 @@ import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 
 # ==========================================
-# 0. 데이터 영구 저장 유틸리티 함수 (Google Sheets 연동)
+# 0. 데이터 영구 저장 유틸리티 함수 (Google Sheets 완벽 실시간 연동)
 # ==========================================
 SALES_FILE_PATH = "sales_data.csv"
 
@@ -22,18 +21,24 @@ DEFAULT_ORGS = {
 }
 
 def load_persistent_db():
-    """Google Sheets에서 계정 및 기관 DB를 실시간으로 읽어옵니다. (admin 제외한 나머지는 구글 시트에서만 로드)"""
+    """Google Sheets에서 계정 및 기관 DB를 실시간으로 완전히 읽어옵니다."""
     users = {}
     orgs = DEFAULT_ORGS.copy()
     targets = {("ORG_A", 2026): 1300000000, ("ORG_B", 2026): 1800000000, ("ORG_C", 2026): 1000000000}
 
     try:
-        # 캐시 없이 즉시 데이터 동기화
+        # 캐시를 강제로 비우고(ttl=0) 구글 시트 데이터를 최신 상태로 읽기
         df_users = conn.read(worksheet="users", ttl=0)
         
         if df_users is not None and not df_users.empty:
+            # 결측치(NaN) 빈 문자열로 처리
+            df_users = df_users.fillna("")
+            
             for _, row in df_users.iterrows():
                 uid = str(row["username"]).strip()
+                if not uid:
+                    continue
+                    
                 users[uid] = {
                     "password": str(row["password"]).strip(),
                     "role": str(row["role"]).strip(),
@@ -41,23 +46,24 @@ def load_persistent_db():
                 }
                 
                 # 지사 회원일 경우 기관 정보 동기화
-                if row["role"] == "user" and pd.notna(row.get("org_name")):
+                if row["role"] == "user" and row.get("org_name"):
                     orgs[str(row["org_code"]).strip()] = {"org_name": str(row["org_name"]).strip()}
     except Exception as e:
-        pass
+        st.warning(f"⚠️ Google Sheets 데이터를 불러오는 중 오류 발생 (기본 설정으로 구동): {e}")
 
-    # admin 아이디 제외 구글시트에서만 불러오되, admin 계정만 최우선 기본 보장
-    users["admin"] = {
-        "password": users.get("admin", {}).get("password", "adminpassword"),
-        "role": "super_admin",
-        "org_code": "ALL",
-        "org_name": "전체(총 관리자)",
-    }
+    # admin(총관리자) 계정 보장
+    if "admin" not in users:
+        users["admin"] = {
+            "password": "1234",
+            "role": "super_admin",
+            "org_code": "ALL",
+            "org_name": "전체(총 관리자)",
+        }
 
     return orgs, users, targets
 
 def save_persistent_db():
-    """st.session_state의 계정/기관 상태를 Google Sheets에 즉시 저장합니다."""
+    """st.session_state의 최신 계정/기관 상태를 Google Sheets에 즉시 반영(쓰기)합니다."""
     try:
         users = st.session_state.get("user_db", {})
         orgs = st.session_state.get("orgs_db", {})
@@ -68,17 +74,23 @@ def save_persistent_db():
             org_name = orgs.get(org_code, {}).get("org_name", "") if uinfo.get("role") == "user" else ""
             
             rows.append({
-                "username": uid,
-                "password": uinfo.get("password", ""),
-                "role": uinfo.get("role", "user"),
-                "org_code": org_code,
-                "org_name": org_name
+                "username": str(uid),
+                "password": str(uinfo.get("password", "")),
+                "role": str(uinfo.get("role", "user")),
+                "org_code": str(org_code),
+                "org_name": str(org_name)
             })
             
         df_save = pd.DataFrame(rows)
+        
+        # Google Sheets에 덮어쓰기 진행 (worksheet="users")
         conn.update(worksheet="users", data=df_save)
+        
+        # Streamlit 캐시 초기화로 다음 읽기 시 시트 데이터와 100% 동기화 보장
+        st.cache_data.clear()
+        
     except Exception as e:
-        st.error(f"계정 저장 중 오류가 발생했습니다: {e}")
+        st.error(f"❌ Google Sheets에 데이터 저장 중 오류가 발생했습니다: {e}")
 
 def load_sales_data():
     if os.path.exists(SALES_FILE_PATH):
@@ -748,7 +760,7 @@ def admin_upload_page():
             end_key = end_year * 100 + end_month
 
             if start_key > end_key:
-                st.error("시작 기간이 종료 기간보다 이후일 수 없습니다.")
+                st.error("시작 기간이 종료 기간보다 이후일 수 কাশী.")
             else:
                 filtered_dl_df = df_acc_calc[
                     (df_acc_calc["period_key"] >= start_key) & (df_acc_calc["period_key"] <= end_key)
