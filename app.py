@@ -7,9 +7,10 @@ import plotly.express as px
 import streamlit as st
 
 # ==========================================
-# 0. 데이터 영구 저장(JSON) 유틸리티 함수
+# 0. 데이터 영구 저장(JSON/CSV) 유틸리티 함수
 # ==========================================
 DB_FILE_PATH = "db_data.json"
+SALES_FILE_PATH = "sales_data.csv"
 
 DEFAULT_ORGS = {
     "ORG_A": {"org_name": "A기관(홍길동지사)"},
@@ -81,6 +82,18 @@ def save_persistent_db():
     }
     with open(DB_FILE_PATH, "w", encoding="utf-8") as f:
         json.dump(save_data, f, ensure_ascii=False, indent=4)
+
+def load_sales_data():
+    if os.path.exists(SALES_FILE_PATH):
+        try:
+            return pd.read_csv(SALES_FILE_PATH)
+        except Exception:
+            pass
+    return get_sample_data()
+
+def save_sales_data(df):
+    if df is not None:
+        df.to_csv(SALES_FILE_PATH, index=False, encoding="utf-8-sig")
 
 
 # ==========================================
@@ -214,7 +227,7 @@ def get_sample_data():
 
 
 if "df_accumulated" not in st.session_state:
-    st.session_state["df_accumulated"] = get_sample_data()
+    st.session_state["df_accumulated"] = load_sales_data()
 
 
 # -----------------------------------------------------------------------------
@@ -422,6 +435,7 @@ def admin_account_page():
                             else:
                                 df_acc.loc[df_acc["기관"] == current_name, "기관"] = new_name_clean
                             st.session_state["df_accumulated"] = df_acc
+                            save_sales_data(df_acc)
 
                         save_persistent_db()
                         st.success(f"기관명이 **'{current_name}'** ➡️ **'{new_name_clean}'**(으)로 변경 및 영구 저장되었습니다.")
@@ -650,10 +664,7 @@ def admin_upload_page():
                     else:
                         new_df = pd.read_excel(uploaded_file)
 
-                    # 기관코드/기관 컬럼 유연한 대처
-                    # '기관코드'가 없거나 컬럼명이 다른 경우를 파악하기 위한 수정을 포함합니다.
                     if "기관코드" not in new_df.columns:
-                        # 고유코드 컬럼명이 다르게 설정되었을 경우 변경 처리 (예: 지사코드, 코드)
                         for code_col in ["지사코드", "고유코드", "code", "org_code"]:
                             if code_col in new_df.columns:
                                 new_df.rename(columns={code_col: "기관코드"}, inplace=True)
@@ -665,14 +676,13 @@ def admin_upload_page():
                             f"필수 컬럼(년도, 월, 매출금액 및 기관코드/기관명)이 엑셀에 포함되어 있어야 합니다."
                         )
                     else:
-                        # [핵심] 고유코드 기준으로 기관명을 시스템 공식 명칭으로 자동 보정
                         orgs_db = st.session_state["orgs_db"]
                         
                         if "기관코드" in new_df.columns:
                             new_df["기관코드"] = new_df["기관코드"].astype(str).str.strip()
-                            # 시스템 DB에 설정된 명칭으로 기관명 변경 (엑셀과 상이하더라도 수정을 통합함)
+                            # [변경 적용] 등록되지 않은 기관코드라도 데이터가 유실되지 않고 전체 매출에 합산되도록 기본값 처리
                             new_df["기관"] = new_df["기관코드"].apply(
-                                lambda code: orgs_db.get(code, {}).get("org_name", "미지정 기관")
+                                lambda code: orgs_db.get(code, {}).get("org_name", f"미등록지사({code})")
                             )
 
                         group_cols = [
@@ -707,7 +717,9 @@ def admin_upload_page():
                             )
 
                         st.session_state["df_accumulated"] = merged_df
-                        st.success(f"🎉 데이터 업로드가 완료되었습니다! (현재 총 {len(merged_df):,}건 누적 보관 중)")
+                        save_sales_data(merged_df)
+                        
+                        st.success(f"🎉 데이터 업로드 및 영구 저장 완료! (현재 총 {len(merged_df):,}건 보관 중)")
                         st.dataframe(new_df.head(10), use_container_width=False)
                 except Exception as e:
                     st.error(f"파일을 읽는 도중 오류가 발생했습니다: {e}")
@@ -814,7 +826,9 @@ def admin_upload_page():
                         remaining_df = df_acc_calc[
                             ~((df_acc_calc["period_key"] >= start_key) & (df_acc_calc["period_key"] <= end_key))
                         ]
-                        st.session_state["df_accumulated"] = remaining_df.drop(columns=["period_key"]).reset_index(drop=True)
+                        updated_df = remaining_df.drop(columns=["period_key"]).reset_index(drop=True)
+                        st.session_state["df_accumulated"] = updated_df
+                        save_sales_data(updated_df)
                         st.success("해당 기간의 매출 데이터가 정상 삭제되었습니다.")
                         st.rerun()
 
@@ -829,7 +843,9 @@ def admin_upload_page():
                     if reset_submit:
                         admin_actual_pw = st.session_state["user_db"]["admin"]["password"]
                         if admin_pw_confirm == admin_actual_pw:
-                            st.session_state["df_accumulated"] = pd.DataFrame(columns=["년도", "월", "기관코드", "기관", "매출금액"])
+                            empty_df = pd.DataFrame(columns=["년도", "월", "기관코드", "기관", "매출금액"])
+                            st.session_state["df_accumulated"] = empty_df
+                            save_sales_data(empty_df)
                             st.success("모든 매출 데이터가 초기화되었습니다.")
                             st.rerun()
                         else:
@@ -930,6 +946,7 @@ def render_dashboard_content(df_raw, user):
     selected_org = "전체"
     if user["role"] in ["super_admin", "hq_admin"]:
         st.subheader("👑 관리자 모드: 전체 기관 데이터 조회")
+        # [변경 적용] 계약 종료되거나 코드가 없는 지사도 이름이 누락되지 않도록 목록에 포함
         all_orgs = ["전체"] + sorted(list(df_raw["기관"].unique()))
         selected_org = st.selectbox("조회할 기관 선택", all_orgs)
 
@@ -940,16 +957,10 @@ def render_dashboard_content(df_raw, user):
     else:
         st.subheader(f"🏢 {user['org_name']} 매출 분석")
 
-        # =========================================================================
-        # [핵심 변경] 기관명 불일치 해결: 기관명이 아닌 오직 '기관코드' 기준 데이터 조회
-        # =========================================================================
         if "기관코드" in df_raw.columns:
-            # 1. 고유코드(org_code) 기준으로 데이터를 엄격히 필터링
             filtered_df = df_raw[df_raw["기관코드"].astype(str).str.strip() == str(user["org_code"]).strip()].copy()
-            # 2. 엑셀의 기관명이 달라도 화면에는 시스템에 등록된 공식 '기관명'으로 표기
             filtered_df["기관"] = user["org_name"]
         else:
-            # 혹시 기관코드 컬럼이 아예 존재하지 않는 구형 데이터 프레임 대비용 fallback
             filtered_df = df_raw[df_raw["기관"] == user["org_name"]]
 
         if filtered_df.empty:
@@ -1163,15 +1174,23 @@ def render_dashboard_content(df_raw, user):
             "연도", "순위", "기관", "당해 누적 매출",
             "전년 동기 대비 증감액", "전년 동기 대비 증감율",
             "전년 전체 대비 증감액", "전년 전체 대비 증감율",
-            "전년동기_증감액"
+            "전년동기_증감액", "전년전체_증감액"  # [수정 적용] 전년 전체 색상 분기를 위해 추가
         ]]
 
+        # [변경 적용] 전년 전체 및 전년 동기 각각의 값(`전년전체_증감액`, `전년동기_증감액`)에 맞추어 개별 색상 지정
         def style_rank_table(row):
-            val = row["전년동기_증감액"]
-            color_style = ""
-            if val > 0: color_style = "color: #d32f2f; font-weight: bold;"
-            elif val < 0: color_style = "color: #1976D2; font-weight: bold;"
-            return ["" if col in ["연도", "순위", "기관"] else color_style for col in row.index]
+            동기_val = row["전년동기_증감액"]
+            전체_val = row["전년전체_증감액"]
+            
+            styles = ["" for _ in row.index]
+            for idx, col in enumerate(row.index):
+                if col in ["전년 동기 대비 증감액", "전년 동기 대비 증감율"]:
+                    if 동기_val > 0: styles[idx] = "color: #d32f2f; font-weight: bold;"
+                    elif 동기_val < 0: styles[idx] = "color: #1976D2; font-weight: bold;"
+                elif col in ["전년 전체 대비 증감액", "전년 전체 대비 증감율"]:
+                    if 전체_val > 0: styles[idx] = "color: #d32f2f; font-weight: bold;"
+                    elif 전체_val < 0: styles[idx] = "color: #1976D2; font-weight: bold;"
+            return styles
 
         styled_rank_df = final_rank_df.style.apply(style_rank_table, axis=1)
 
@@ -1185,6 +1204,7 @@ def render_dashboard_content(df_raw, user):
             "전년 전체 대비 증감액": st.column_config.TextColumn("전년 전체 대비 증감액", width=160, alignment="right"),
             "전년 전체 대비 증감율": st.column_config.TextColumn("전년 전체 대비 증감율", width=120, alignment="right"),
             "전년동기_증감액": None,
+            "전년전체_증감액": None,
         }
 
         st.dataframe(styled_rank_df, column_config=rank_config, hide_index=True, use_container_width=False)
@@ -1299,7 +1319,7 @@ def render_dashboard_content(df_raw, user):
             for idx, col in enumerate(row.index):
                 if col in ["당월 매출", "전년 동월 대비 증감액", "전년 동월 대비 증감율"]:
                     styles[idx] = m_color
-                elif col in ["당해 누적 매출", "전년 동기 누적 대비 증감액", "전년 동기 대비 증감율"]:
+                elif col in ["당해 누적 매출", "전년 동기 누적 대비 증감액", "전년 동기 누적 대비 증감율"]:
                     styles[idx] = cum_color
                 elif col in ["전년 동월 매출", "전년 동기 누적"]:
                     styles[idx] = "color: #000000;"
@@ -1317,7 +1337,7 @@ def render_dashboard_content(df_raw, user):
             "전년 동월 매출": st.column_config.TextColumn("전년 동월 매출", width=120, alignment="right"),
             "당해 누적 매출": st.column_config.TextColumn("당해 누적 매출", width=130, alignment="right"),
             "전년 동기 누적 대비 증감액": st.column_config.TextColumn("전년 동기 누적 대비 증감액", width=160, alignment="right"),
-            "전년 동기 대비 증감율": st.column_config.TextColumn("전년 동기 대비 증감율", width=120, alignment="right"),
+            "전년 동기 누적 대비 증감율": st.column_config.TextColumn("전년 동기 누적 대비 증감율", width=120, alignment="right"),
             "전년 동기 누적": st.column_config.TextColumn("전년 동기 누적", width=130, alignment="right"),
             "m_diff": None,
             "cum_diff": None,
