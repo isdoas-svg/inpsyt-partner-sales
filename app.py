@@ -11,7 +11,6 @@ import streamlit as st
 # ==========================================
 DB_FILE_PATH = "db_data.json"
 SALES_FILE_PATH = "sales_data.csv"
-SESSION_FILE_PATH = "session_cache.json"
 
 DEFAULT_ORGS = {
     "ORG_A": {"org_name": "A기관(홍길동지사)"},
@@ -21,57 +20,54 @@ DEFAULT_ORGS = {
 
 DEFAULT_USERS = {
     "admin": {
-        "password": "Insight_Admin_2026!#",
+        "password": "adminpassword",
         "role": "super_admin",
         "org_code": "ALL",
         "org_name": "전체(총 관리자)",
     },
     "superadmin": {
-        "password": "Insight_Admin_2026!#",
+        "password": "adminpassword",
         "role": "super_admin",
         "org_code": "ALL",
         "org_name": "전체(총 관리자)",
     },
     "hqadmin": {
-        "password": "Insight_HQ_2026!#",
+        "password": "hqpassword",
         "role": "hq_admin",
         "org_code": "ALL",
         "org_name": "전체(본사 관리자)",
     },
-    "org_a": {"password": "Insight_User_2026!#", "role": "user", "org_code": "ORG_A"},
-    "org_b": {"password": "Insight_User_2026!#", "role": "user", "org_code": "ORG_B"},
-    "org_c": {"password": "Insight_User_2026!#", "role": "user", "org_code": "ORG_C"},
+    "org_a": {"password": "password123", "role": "user", "org_code": "ORG_A"},
+    "org_b": {"password": "password123", "role": "user", "org_code": "ORG_B"},
+    "org_c": {"password": "password123", "role": "user", "org_code": "ORG_C"},
 }
 
 def load_persistent_db():
-    orgs = DEFAULT_ORGS.copy()
-    users = DEFAULT_USERS.copy()
-    targets = {("ORG_A", 2026): 1300000000, ("ORG_B", 2026): 1800000000, ("ORG_C", 2026): 1000000000}
-
     if os.path.exists(DB_FILE_PATH):
         try:
             with open(DB_FILE_PATH, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                
-                # 기존 사용자가 저장해둔 계정 및 기관 정보가 있다면 최상위 저장소로 읽어옴
-                if "orgs_db" in data and data["orgs_db"]:
-                    orgs = data["orgs_db"]
-                if "user_db" in data and data["user_db"]:
-                    users = data["user_db"]
-
                 raw_targets = data.get("targets_db", {})
                 converted_targets = {}
                 for k, v in raw_targets.items():
                     parts = k.rsplit("_", 1)
                     if len(parts) == 2:
                         converted_targets[(parts[0], int(parts[1]))] = v
-                if converted_targets:
-                    targets = converted_targets
-
-        except Exception as e:
-            st.error(f"DB 데이터를 불러오는 중 오류 발생: {e}")
-
-    return orgs, users, targets
+                
+                orgs = data.get("orgs_db", DEFAULT_ORGS)
+                users = data.get("user_db", DEFAULT_USERS)
+                
+                users["admin"] = {
+                    "password": users.get("admin", {}).get("password", "adminpassword"),
+                    "role": "super_admin",
+                    "org_code": "ALL",
+                    "org_name": "전체(총 관리자)",
+                }
+                
+                return orgs, users, converted_targets
+        except Exception:
+            pass
+    return DEFAULT_ORGS.copy(), DEFAULT_USERS.copy(), {("ORG_A", 2026): 1300000000, ("ORG_B", 2026): 1800000000, ("ORG_C", 2026): 1000000000}
 
 def save_persistent_db():
     orgs = st.session_state.get("orgs_db", {})
@@ -98,29 +94,6 @@ def load_sales_data():
 def save_sales_data(df):
     if df is not None:
         df.to_csv(SALES_FILE_PATH, index=False, encoding="utf-8-sig")
-
-def save_session_cache(user_info):
-    try:
-        with open(SESSION_FILE_PATH, "w", encoding="utf-8") as f:
-            json.dump(user_info, f, ensure_ascii=False)
-    except Exception:
-        pass
-
-def load_session_cache():
-    if os.path.exists(SESSION_FILE_PATH):
-        try:
-            with open(SESSION_FILE_PATH, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return None
-
-def clear_session_cache():
-    if os.path.exists(SESSION_FILE_PATH):
-        try:
-            os.remove(SESSION_FILE_PATH)
-        except Exception:
-            pass
 
 
 # ==========================================
@@ -204,16 +177,10 @@ if "user_db" not in st.session_state:
     st.session_state["user_db"] = loaded_users
 if "targets_db" not in st.session_state:
     st.session_state["targets_db"] = loaded_targets
-
-# 새로고침 시 로그인 세션 유지 로직 적용
-cached_user = load_session_cache()
-if cached_user and "logged_in" not in st.session_state:
-    st.session_state["logged_in"] = True
-    st.session_state["user_info"] = cached_user
-elif "logged_in" not in st.session_state:
+if "logged_in" not in st.session_state:
     st.session_state["logged_in"] = False
+if "user_info" not in st.session_state:
     st.session_state["user_info"] = None
-
 if "selected_detail_org" not in st.session_state:
     st.session_state["selected_detail_org"] = None
 
@@ -292,19 +259,13 @@ def login_screen():
                 else:
                     current_org_name = orgs_db.get(org_code, {}).get("org_name", "미지정 기관")
 
-                user_session_info = {
+                st.session_state["logged_in"] = True
+                st.session_state["user_info"] = {
                     "username": username,
                     "role": role,
                     "org_code": org_code,
                     "org_name": current_org_name,
                 }
-
-                st.session_state["logged_in"] = True
-                st.session_state["user_info"] = user_session_info
-                
-                # 새로고침 로그인 유지 파일 저장
-                save_session_cache(user_session_info)
-
                 st.success("로그인 성공!")
                 st.rerun()
             else:
@@ -437,7 +398,6 @@ def admin_account_page():
 
                             if st.session_state["user_info"]["username"] == selected_user:
                                 st.session_state["user_info"]["username"] = new_id_clean
-                                save_session_cache(st.session_state["user_info"])
 
                             save_persistent_db()
                             st.success(f"계정 정보가 성공적으로 변경 및 저장되었습니다. (ID: **{new_id_clean}**)")
@@ -538,16 +498,9 @@ def admin_account_page():
                     else:
                         st.warning("⚠️ 삭제된 계정 정보는 복구할 수 없습니다.")
                         if st.button("🚨 해당 계정 삭제", type="primary", use_container_width=True):
-                            deleted_user_data = st.session_state["user_db"].pop(selected_del_user)
-                            target_code = deleted_user_data.get("org_code")
-
-                            if target_code and target_code != "ALL":
-                                remaining_codes = [u.get("org_code") for u in st.session_state["user_db"].values()]
-                                if target_code not in remaining_codes and target_code in st.session_state["orgs_db"]:
-                                    st.session_state["orgs_db"].pop(target_code)
-
+                            st.session_state["user_db"].pop(selected_del_user)
                             save_persistent_db()
-                            st.success(f"계정 **'{selected_del_user}'** 및 연동 기관 정보가 성공적으로 삭제되었습니다.")
+                            st.success(f"계정 **'{selected_del_user}'** 이(가) 성공적으로 삭제되었습니다.")
                             st.rerun()
 
 
@@ -780,10 +733,7 @@ def admin_upload_page():
 
             all_years = sorted(list(df_acc["년도"].unique()))
             all_months = list(range(1, 13))
-            
-            # 지사 목록 추출 시 등록된 지사만 포함
-            registered_orgs = sorted([info["org_name"] for info in st.session_state["orgs_db"].values()])
-            all_orgs = ["전체"] + registered_orgs
+            all_orgs = ["전체"] + sorted(list(df_acc["기관"].unique()))
 
             col_drop_area, _ = st.columns([5, 5])
             with col_drop_area:
@@ -808,9 +758,6 @@ def admin_upload_page():
                 filtered_dl_df = df_acc_calc[
                     (df_acc_calc["period_key"] >= start_key) & (df_acc_calc["period_key"] <= end_key)
                 ]
-
-                # [핵심 수정 2] 다운로드 목록에서도 정식 등록된 지사 데이터만 필터링
-                filtered_dl_df = filtered_dl_df[filtered_dl_df["기관"].isin(registered_orgs)]
 
                 if selected_dl_org != "전체":
                     filtered_dl_df = filtered_dl_df[filtered_dl_df["기관"] == selected_dl_org]
@@ -927,7 +874,6 @@ def main_dashboard():
         if st.button("로그아웃", use_container_width=True):
             st.session_state["logged_in"] = False
             st.session_state["user_info"] = None
-            clear_session_cache()
             st.rerun()
 
         st.markdown("<br><hr><br>", unsafe_allow_html=True)
@@ -999,9 +945,6 @@ def render_dashboard_content(df_raw, user):
     # 지사 DB 상에 정식 등록된 기관명 추출
     registered_org_names = sorted([info["org_name"] for info in st.session_state["orgs_db"].values()])
 
-    # [핵심 수정 2] 미등록 지사 데이터 전체 제외 (정식 등록된 지사의 데이터만 조회에 반영)
-    df_raw = df_raw[df_raw["기관"].isin(registered_org_names)].copy()
-
     selected_org = "전체"
     if user["role"] in ["super_admin", "hq_admin"]:
         st.subheader("👑 관리자 모드: 전체 기관 데이터 조회")
@@ -1027,16 +970,12 @@ def render_dashboard_content(df_raw, user):
 
     st.markdown("---")
 
-    latest_fiscal_year = filtered_df["회계연도"].max() if not filtered_df.empty else 2026
+    latest_fiscal_year = filtered_df["회계연도"].max()
     prev_fiscal_year = latest_fiscal_year - 1
 
     latest_rows = filtered_df[filtered_df["회계연도"] == latest_fiscal_year]
-    if not latest_rows.empty:
-        latest_year = latest_rows["년도"].max()
-        latest_month = latest_rows[latest_rows["년도"] == latest_year]["월"].max()
-    else:
-        latest_year = 2026
-        latest_month = 1
+    latest_year = latest_rows["년도"].max()
+    latest_month = latest_rows[latest_rows["년도"] == latest_year]["월"].max()
 
     curr_sales = filtered_df[(filtered_df["년도"] == latest_year) & (filtered_df["월"] == latest_month)]["매출금액"].sum()
     prev_sales = filtered_df[(filtered_df["년도"] == latest_year - 1) & (filtered_df["월"] == latest_month)]["매출금액"].sum()
@@ -1202,9 +1141,6 @@ def render_dashboard_content(df_raw, user):
 
         merged_rank = pd.merge(curr_rank_df, prev_rank_df, on="기관", how="left").fillna({"전년전체매출": 0})
         merged_rank = pd.merge(merged_rank, prev_same_period_df, on="기관", how="left").fillna({"전년동기매출": 0})
-        
-        # 정식 등록된 기관만 순위표에 노출
-        merged_rank = merged_rank[merged_rank["기관"].isin(registered_org_names)]
         merged_rank = merged_rank.sort_values(by="당해매출", ascending=False).reset_index(drop=True)
 
         merged_rank["연도"] = f"{selected_rank_fy}년"
@@ -1279,7 +1215,7 @@ def render_dashboard_content(df_raw, user):
         selected_base_fy = st.selectbox("📅 기준 연도", all_fy_list, index=0, key="detail_analysis_base_fy")
         st.caption(f"선택한 **{selected_base_fy} 회계연도 포함 직전 6개년** 매출 추이 및 전년 대비 증감 현황을 조회합니다.")
 
-        # 지사 DB에 정식 등록되어 있는 기관만 노출
+        # [변경 적용] 미등록지사(cancel 등) 제외, 지사 등록 현황에 있는 정식 지사만 표시
         unique_org_list = registered_org_names
 
         if unique_org_list:
