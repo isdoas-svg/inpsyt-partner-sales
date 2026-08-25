@@ -14,11 +14,7 @@ SALES_FILE_PATH = "sales_data.csv"
 # Google Sheets 연결 객체 생성
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-DEFAULT_ORGS = {
-    "ORG_A": {"org_name": "A기관(홍길동지사)"},
-    "ORG_B": {"org_name": "B기관"},
-    "ORG_C": {"org_name": "C기관"},
-}
+DEFAULT_ORGS = {}
 
 def load_persistent_db():
     """Google Sheets에서 계정 및 기관 DB를 실시간으로 완전히 읽어옵니다."""
@@ -62,43 +58,50 @@ def load_persistent_db():
 
     return orgs, users, targets
 
-def save_persistent_db():
-    """st.session_state의 최신 계정/기관 상태를 Google Sheets에 즉시 반영(쓰기)합니다."""
-    try:
-        users = st.session_state.get("user_db", {})
-        orgs = st.session_state.get("orgs_db", {})
-        
-        rows = []
-        for uid, uinfo in users.items():
-            org_code = uinfo.get("org_code", "")
-            org_name = orgs.get(org_code, {}).get("org_name", "") if uinfo.get("role") == "user" else ""
-            
-            rows.append({
-                "username": str(uid),
-                "password": str(uinfo.get("password", "")),
-                "role": str(uinfo.get("role", "user")),
-                "org_code": str(org_code),
-                "org_name": str(org_name)
-            })
-            
-        df_save = pd.DataFrame(rows)
-        
-        # Google Sheets에 덮어쓰기 진행 (worksheet="users")
-        conn.update(worksheet="users", data=df_save)
-        
-        # Streamlit 캐시 초기화로 다음 읽기 시 시트 데이터와 100% 동기화 보장
-        st.cache_data.clear()
-        
-    except Exception as e:
-        st.error(f"❌ Google Sheets에 데이터 저장 중 오류가 발생했습니다: {e}")
+def load_persistent_db():
+    users = {}
+    orgs = DEFAULT_ORGS.copy()
+    targets = {("ORG_A", 2026): 1300000000, ("ORG_B", 2026): 1800000000, ("ORG_C", 2026): 1000000000}
 
-def load_sales_data():
-    if os.path.exists(SALES_FILE_PATH):
-        try:
-            return pd.read_csv(SALES_FILE_PATH)
-        except Exception:
-            pass
-    return get_sample_data()
+    try:
+        sheet_url = st.secrets["connections"]["gsheets"].get("spreadsheet")
+        df_users = conn.read(spreadsheet=sheet_url, worksheet="users", ttl=0) if sheet_url else conn.read(worksheet="users", ttl=0)
+        
+        if df_users is not None and not df_users.empty:
+            df_users = df_users.fillna("")
+            
+            for _, row in df_users.iterrows():
+                # 소수점(.0) 제거 후 순수 문자열 처리 함수
+                def clean_str(val):
+                    s = str(val).strip()
+                    if s.endswith(".0"):
+                        return s[:-2]
+                    return s
+
+                uid = clean_str(row["username"])
+                if not uid:
+                    continue
+                    
+                users[uid] = {
+                    "password": clean_str(row["password"]), # ← 비밀번호 소수점 제거!
+                    "role": clean_str(row["role"]),
+                    "org_code": clean_str(row["org_code"]),
+                }
+                
+                if row["role"] == "user" and row.get("org_name"):
+                    orgs[clean_str(row["org_code"])] = {"org_name": clean_str(row["org_name"])}
+    except Exception as e:
+        st.warning(f"⚠️ Google Sheets 데이터를 불러오는 중 오류 발생 (기본 설정으로 구동): {e}")
+
+    if "admin" not in users:
+        users["admin"] = {
+            "password": "adminpassword",
+            "role": "super_admin",
+            "org_code": "ALL",
+            "org_name": "전체(총 관리자)",
+        }
+
+    return orgs, users, targets
 
 def save_sales_data(df):
     if df is not None:
