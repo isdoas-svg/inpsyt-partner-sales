@@ -11,6 +11,7 @@ import streamlit as st
 # ==========================================
 DB_FILE_PATH = "db_data.json"
 SALES_FILE_PATH = "sales_data.csv"
+SESSION_FILE_PATH = "session_cache.json"
 
 DEFAULT_ORGS = {
     "ORG_A": {"org_name": "A기관(홍길동지사)"},
@@ -18,28 +19,29 @@ DEFAULT_ORGS = {
     "ORG_C": {"org_name": "C기관"},
 }
 
+# 브라우저의 '비밀번호 노출 경고' 알림을 피하기 위해 단순 패스워드 패턴 변경
 DEFAULT_USERS = {
     "admin": {
-        "password": "adminpassword",
+        "password": "Insight_Admin_2026!#",
         "role": "super_admin",
         "org_code": "ALL",
         "org_name": "전체(총 관리자)",
     },
     "superadmin": {
-        "password": "adminpassword",
+        "password": "Insight_Admin_2026!#",
         "role": "super_admin",
         "org_code": "ALL",
         "org_name": "전체(총 관리자)",
     },
     "hqadmin": {
-        "password": "hqpassword",
+        "password": "Insight_HQ_2026!#",
         "role": "hq_admin",
         "org_code": "ALL",
         "org_name": "전체(본사 관리자)",
     },
-    "org_a": {"password": "password123", "role": "user", "org_code": "ORG_A"},
-    "org_b": {"password": "password123", "role": "user", "org_code": "ORG_B"},
-    "org_c": {"password": "password123", "role": "user", "org_code": "ORG_C"},
+    "org_a": {"password": "Insight_User_2026!#", "role": "user", "org_code": "ORG_A"},
+    "org_b": {"password": "Insight_User_2026!#", "role": "user", "org_code": "ORG_B"},
+    "org_c": {"password": "Insight_User_2026!#", "role": "user", "org_code": "ORG_C"},
 }
 
 def load_persistent_db():
@@ -56,14 +58,6 @@ def load_persistent_db():
                 
                 orgs = data.get("orgs_db", DEFAULT_ORGS)
                 users = data.get("user_db", DEFAULT_USERS)
-                
-                users["admin"] = {
-                    "password": users.get("admin", {}).get("password", "adminpassword"),
-                    "role": "super_admin",
-                    "org_code": "ALL",
-                    "org_name": "전체(총 관리자)",
-                }
-                
                 return orgs, users, converted_targets
         except Exception:
             pass
@@ -94,6 +88,30 @@ def load_sales_data():
 def save_sales_data(df):
     if df is not None:
         df.to_csv(SALES_FILE_PATH, index=False, encoding="utf-8-sig")
+
+# 세션 파일 저장 (새로고침 로그인 유지용)
+def save_session_cache(user_info):
+    try:
+        with open(SESSION_FILE_PATH, "w", encoding="utf-8") as f:
+            json.dump(user_info, f, ensure_ascii=False)
+    except Exception:
+        pass
+
+def load_session_cache():
+    if os.path.exists(SESSION_FILE_PATH):
+        try:
+            with open(SESSION_FILE_PATH, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return None
+
+def clear_session_cache():
+    if os.path.exists(SESSION_FILE_PATH):
+        try:
+            os.remove(SESSION_FILE_PATH)
+        except Exception:
+            pass
 
 
 # ==========================================
@@ -177,10 +195,16 @@ if "user_db" not in st.session_state:
     st.session_state["user_db"] = loaded_users
 if "targets_db" not in st.session_state:
     st.session_state["targets_db"] = loaded_targets
-if "logged_in" not in st.session_state:
+
+# 새로고침 시 로그인 세션 유지 로직 적용
+cached_user = load_session_cache()
+if cached_user and "logged_in" not in st.session_state:
+    st.session_state["logged_in"] = True
+    st.session_state["user_info"] = cached_user
+elif "logged_in" not in st.session_state:
     st.session_state["logged_in"] = False
-if "user_info" not in st.session_state:
     st.session_state["user_info"] = None
+
 if "selected_detail_org" not in st.session_state:
     st.session_state["selected_detail_org"] = None
 
@@ -259,13 +283,19 @@ def login_screen():
                 else:
                     current_org_name = orgs_db.get(org_code, {}).get("org_name", "미지정 기관")
 
-                st.session_state["logged_in"] = True
-                st.session_state["user_info"] = {
+                user_session_info = {
                     "username": username,
                     "role": role,
                     "org_code": org_code,
                     "org_name": current_org_name,
                 }
+
+                st.session_state["logged_in"] = True
+                st.session_state["user_info"] = user_session_info
+                
+                # 새로고침 로그인 유지 파일 저장
+                save_session_cache(user_session_info)
+
                 st.success("로그인 성공!")
                 st.rerun()
             else:
@@ -398,6 +428,7 @@ def admin_account_page():
 
                             if st.session_state["user_info"]["username"] == selected_user:
                                 st.session_state["user_info"]["username"] = new_id_clean
+                                save_session_cache(st.session_state["user_info"])
 
                             save_persistent_db()
                             st.success(f"계정 정보가 성공적으로 변경 및 저장되었습니다. (ID: **{new_id_clean}**)")
@@ -498,9 +529,17 @@ def admin_account_page():
                     else:
                         st.warning("⚠️ 삭제된 계정 정보는 복구할 수 없습니다.")
                         if st.button("🚨 해당 계정 삭제", type="primary", use_container_width=True):
-                            st.session_state["user_db"].pop(selected_del_user)
+                            # [핵심 수정 1] 계정 삭제 시 다른 계정에서 같은 기관 코드를 쓰지 않는 경우 orgs_db에서도 함께 제거
+                            deleted_user_data = st.session_state["user_db"].pop(selected_del_user)
+                            target_code = deleted_user_data.get("org_code")
+
+                            if target_code and target_code != "ALL":
+                                remaining_codes = [u.get("org_code") for u in st.session_state["user_db"].values()]
+                                if target_code not in remaining_codes and target_code in st.session_state["orgs_db"]:
+                                    st.session_state["orgs_db"].pop(target_code)
+
                             save_persistent_db()
-                            st.success(f"계정 **'{selected_del_user}'** 이(가) 성공적으로 삭제되었습니다.")
+                            st.success(f"계정 **'{selected_del_user}'** 및 연동 기관 정보가 성공적으로 삭제되었습니다.")
                             st.rerun()
 
 
@@ -874,6 +913,9 @@ def main_dashboard():
         if st.button("로그아웃", use_container_width=True):
             st.session_state["logged_in"] = False
             st.session_state["user_info"] = None
+            
+            # [핵심 수정 2] 로그아웃 시 캐시된 세션 파일 완전 제거
+            clear_session_cache()
             st.rerun()
 
         st.markdown("<br><hr><br>", unsafe_allow_html=True)
@@ -1215,7 +1257,7 @@ def render_dashboard_content(df_raw, user):
         selected_base_fy = st.selectbox("📅 기준 연도", all_fy_list, index=0, key="detail_analysis_base_fy")
         st.caption(f"선택한 **{selected_base_fy} 회계연도 포함 직전 6개년** 매출 추이 및 전년 대비 증감 현황을 조회합니다.")
 
-        # [변경 적용] 미등록지사(cancel 등) 제외, 지사 등록 현황에 있는 정식 지사만 표시
+        # 지사 DB에 정식 등록되어 있는 기관만 보여줌
         unique_org_list = registered_org_names
 
         if unique_org_list:
