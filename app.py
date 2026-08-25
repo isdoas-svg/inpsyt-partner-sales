@@ -172,7 +172,7 @@ if "df_accumulated" not in st.session_state:
 
 
 # -----------------------------------------------------------------------------
-# 4. 로그인 화면
+# 4. 로그인 화면 (st.form 적용으로 엔터키 로그인 지원)
 # -----------------------------------------------------------------------------
 def login_screen():
     _, center_col, _ = st.columns([3.75, 2.5, 3.75])
@@ -181,10 +181,12 @@ def login_screen():
         st.markdown("<h2 style='text-align: center;'>인싸이트 지사 매출</h2>", unsafe_allow_html=True)
         st.markdown("---")
         
-        username = st.text_input("아이디 (ID)", key="login_username_input").strip()
-        password = st.text_input("비밀번호 (Password)", type="password", key="login_password_input").strip()
+        with st.form(key="login_form"):
+            username = st.text_input("아이디 (ID)", key="login_username_input").strip()
+            password = st.text_input("비밀번호 (Password)", type="password", key="login_password_input").strip()
+            submit_login = st.form_submit_button("로그인", use_container_width=True, type="primary")
         
-        if st.button("로그인", use_container_width=True, type="primary"):
+        if submit_login:
             user_db = st.session_state["user_db"]
             orgs_db = st.session_state["orgs_db"]
 
