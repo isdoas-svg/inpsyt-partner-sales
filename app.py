@@ -680,7 +680,6 @@ def admin_upload_page():
                         
                         if "기관코드" in new_df.columns:
                             new_df["기관코드"] = new_df["기관코드"].astype(str).str.strip()
-                            # [변경 적용] 등록되지 않은 기관코드라도 데이터가 유실되지 않고 전체 매출에 합산되도록 기본값 처리
                             new_df["기관"] = new_df["기관코드"].apply(
                                 lambda code: orgs_db.get(code, {}).get("org_name", f"미등록지사({code})")
                             )
@@ -943,11 +942,13 @@ def render_dashboard_content(df_raw, user):
     st.title("📈 매출 분석 대시보드")
     st.caption("※ 회계연도 기준: 전년도 12월 ~ 당해년도 11월")
 
+    # 지사 DB 상에 정식 등록된 기관명 추출
+    registered_org_names = sorted([info["org_name"] for info in st.session_state["orgs_db"].values()])
+
     selected_org = "전체"
     if user["role"] in ["super_admin", "hq_admin"]:
         st.subheader("👑 관리자 모드: 전체 기관 데이터 조회")
-        # [변경 적용] 계약 종료되거나 코드가 없는 지사도 이름이 누락되지 않도록 목록에 포함
-        all_orgs = ["전체"] + sorted(list(df_raw["기관"].unique()))
+        all_orgs = ["전체"] + registered_org_names
         selected_org = st.selectbox("조회할 기관 선택", all_orgs)
 
         if selected_org != "전체":
@@ -1174,10 +1175,9 @@ def render_dashboard_content(df_raw, user):
             "연도", "순위", "기관", "당해 누적 매출",
             "전년 동기 대비 증감액", "전년 동기 대비 증감율",
             "전년 전체 대비 증감액", "전년 전체 대비 증감율",
-            "전년동기_증감액", "전년전체_증감액"  # [수정 적용] 전년 전체 색상 분기를 위해 추가
+            "전년동기_증감액", "전년전체_증감액"
         ]]
 
-        # [변경 적용] 전년 전체 및 전년 동기 각각의 값(`전년전체_증감액`, `전년동기_증감액`)에 맞추어 개별 색상 지정
         def style_rank_table(row):
             동기_val = row["전년동기_증감액"]
             전체_val = row["전년전체_증감액"]
@@ -1215,7 +1215,8 @@ def render_dashboard_content(df_raw, user):
         selected_base_fy = st.selectbox("📅 기준 연도", all_fy_list, index=0, key="detail_analysis_base_fy")
         st.caption(f"선택한 **{selected_base_fy} 회계연도 포함 직전 6개년** 매출 추이 및 전년 대비 증감 현황을 조회합니다.")
 
-        unique_org_list = sorted(list(df_raw["기관"].unique()))
+        # [변경 적용] 미등록지사(cancel 등) 제외, 지사 등록 현황에 있는 정식 지사만 표시
+        unique_org_list = registered_org_names
 
         if unique_org_list:
             search_selected = st.selectbox("🔍 지사 검색", ["선택하세요..."] + unique_org_list, key="org_search_box")
