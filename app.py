@@ -75,8 +75,18 @@ def load_persistent_db():
     return orgs, users, targets
 
 def save_sales_data(df):
+    """매출 데이터를 백업용 로컬 CSV 저장과 동시에 Google Sheets 'sales' 워크시트에 업데이트합니다."""
     if df is not None:
+        # 1. 백업용 로컬 CSV 저장
         df.to_csv(SALES_FILE_PATH, index=False, encoding="utf-8-sig")
+        
+        # 2. Google Sheets 실시간 업데이트 (영구 보존)
+        try:
+            sheet_url = st.secrets["connections"]["gsheets"].get("spreadsheet")
+            conn.update(spreadsheet=sheet_url, worksheet="sales", data=df)
+            st.toast("✅ Google Sheets에 매출 데이터가 안전하게 저장되었습니다!", icon="💾")
+        except Exception as e:
+            st.error(f"⚠️ Google Sheets 매출 데이터 저장 중 오류 발생: {e}")
 
 
 # ==========================================
