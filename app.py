@@ -5,12 +5,15 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import streamlit as st
+from streamlit_gsheets import GSheetsConnection
 
 # ==========================================
-# 0. 데이터 영구 저장(JSON/CSV) 유틸리티 함수
+# 0. 데이터 영구 저장 유틸리티 함수 (Google Sheets 연동)
 # ==========================================
-DB_FILE_PATH = "db_data.json"
 SALES_FILE_PATH = "sales_data.csv"
+
+# Google Sheets 연결 객체 생성
+conn = st.connection("gsheets", type=GSheetsConnection)
 
 DEFAULT_ORGS = {
     "ORG_A": {"org_name": "A기관(홍길동지사)"},
@@ -18,70 +21,64 @@ DEFAULT_ORGS = {
     "ORG_C": {"org_name": "C기관"},
 }
 
-DEFAULT_USERS = {
-    "admin": {
-        "password": "adminpassword",
-        "role": "super_admin",
-        "org_code": "ALL",
-        "org_name": "전체(총 관리자)",
-    },
-    "superadmin": {
-        "password": "adminpassword",
-        "role": "super_admin",
-        "org_code": "ALL",
-        "org_name": "전체(총 관리자)",
-    },
-    "hqadmin": {
-        "password": "hqpassword",
-        "role": "hq_admin",
-        "org_code": "ALL",
-        "org_name": "전체(본사 관리자)",
-    },
-    "org_a": {"password": "password123", "role": "user", "org_code": "ORG_A"},
-    "org_b": {"password": "password123", "role": "user", "org_code": "ORG_B"},
-    "org_c": {"password": "password123", "role": "user", "org_code": "ORG_C"},
-}
-
 def load_persistent_db():
-    if os.path.exists(DB_FILE_PATH):
-        try:
-            with open(DB_FILE_PATH, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                raw_targets = data.get("targets_db", {})
-                converted_targets = {}
-                for k, v in raw_targets.items():
-                    parts = k.rsplit("_", 1)
-                    if len(parts) == 2:
-                        converted_targets[(parts[0], int(parts[1]))] = v
-                
-                orgs = data.get("orgs_db", DEFAULT_ORGS)
-                users = data.get("user_db", DEFAULT_USERS)
-                
-                users["admin"] = {
-                    "password": users.get("admin", {}).get("password", "adminpassword"),
-                    "role": "super_admin",
-                    "org_code": "ALL",
-                    "org_name": "전체(총 관리자)",
+    """Google Sheets에서 계정 및 기관 DB를 실시간으로 읽어옵니다. (admin 제외한 나머지는 구글 시트에서만 로드)"""
+    users = {}
+    orgs = DEFAULT_ORGS.copy()
+    targets = {("ORG_A", 2026): 1300000000, ("ORG_B", 2026): 1800000000, ("ORG_C", 2026): 1000000000}
+
+    try:
+        # 캐시 없이 즉시 데이터 동기화
+        df_users = conn.read(worksheet="users", ttl=0)
+        
+        if df_users is not None and not df_users.empty:
+            for _, row in df_users.iterrows():
+                uid = str(row["username"]).strip()
+                users[uid] = {
+                    "password": str(row["password"]).strip(),
+                    "role": str(row["role"]).strip(),
+                    "org_code": str(row["org_code"]).strip(),
                 }
                 
-                return orgs, users, converted_targets
-        except Exception:
-            pass
-    return DEFAULT_ORGS.copy(), DEFAULT_USERS.copy(), {("ORG_A", 2026): 1300000000, ("ORG_B", 2026): 1800000000, ("ORG_C", 2026): 1000000000}
+                # 지사 회원일 경우 기관 정보 동기화
+                if row["role"] == "user" and pd.notna(row.get("org_name")):
+                    orgs[str(row["org_code"]).strip()] = {"org_name": str(row["org_name"]).strip()}
+    except Exception as e:
+        pass
+
+    # admin 아이디 제외 구글시트에서만 불러오되, admin 계정만 최우선 기본 보장
+    users["admin"] = {
+        "password": users.get("admin", {}).get("password", "adminpassword"),
+        "role": "super_admin",
+        "org_code": "ALL",
+        "org_name": "전체(총 관리자)",
+    }
+
+    return orgs, users, targets
 
 def save_persistent_db():
-    orgs = st.session_state.get("orgs_db", {})
-    users = st.session_state.get("user_db", {})
-    targets = st.session_state.get("targets_db", {})
-    
-    serializable_targets = {f"{k[0]}_{k[1]}": v for k, v in targets.items()}
-    save_data = {
-        "orgs_db": orgs,
-        "user_db": users,
-        "targets_db": serializable_targets
-    }
-    with open(DB_FILE_PATH, "w", encoding="utf-8") as f:
-        json.dump(save_data, f, ensure_ascii=False, indent=4)
+    """st.session_state의 계정/기관 상태를 Google Sheets에 즉시 저장합니다."""
+    try:
+        users = st.session_state.get("user_db", {})
+        orgs = st.session_state.get("orgs_db", {})
+        
+        rows = []
+        for uid, uinfo in users.items():
+            org_code = uinfo.get("org_code", "")
+            org_name = orgs.get(org_code, {}).get("org_name", "") if uinfo.get("role") == "user" else ""
+            
+            rows.append({
+                "username": uid,
+                "password": uinfo.get("password", ""),
+                "role": uinfo.get("role", "user"),
+                "org_code": org_code,
+                "org_name": org_name
+            })
+            
+        df_save = pd.DataFrame(rows)
+        conn.update(worksheet="users", data=df_save)
+    except Exception as e:
+        st.error(f"계정 저장 중 오류가 발생했습니다: {e}")
 
 def load_sales_data():
     if os.path.exists(SALES_FILE_PATH):
@@ -183,8 +180,6 @@ if "user_info" not in st.session_state:
     st.session_state["user_info"] = None
 if "selected_detail_org" not in st.session_state:
     st.session_state["selected_detail_org"] = None
-
-save_persistent_db()
 
 
 # -----------------------------------------------------------------------------
@@ -1215,7 +1210,6 @@ def render_dashboard_content(df_raw, user):
         selected_base_fy = st.selectbox("📅 기준 연도", all_fy_list, index=0, key="detail_analysis_base_fy")
         st.caption(f"선택한 **{selected_base_fy} 회계연도 포함 직전 6개년** 매출 추이 및 전년 대비 증감 현황을 조회합니다.")
 
-        # [변경 적용] 미등록지사(cancel 등) 제외, 지사 등록 현황에 있는 정식 지사만 표시
         unique_org_list = registered_org_names
 
         if unique_org_list:
@@ -1299,7 +1293,7 @@ def render_dashboard_content(df_raw, user):
             "년도", "월", "당월 매출", 
             "전년 동월 대비 증감액", "전년 동월 대비 증감율", "전년 동월 매출", 
             "당해 누적 매출", 
-            "전년 동기 누적 대비 증감액", "전년 동기 누적 대비 증감율", "전년 동기 누적",
+            "전년 동기 누적 대비 증감액", "전년 동기 대비 증감율", "전년 동기 누적",
             "m_diff", "cum_diff"
         ]
         display_indiv_df = display_indiv_df[ordered_cols]
@@ -1338,7 +1332,7 @@ def render_dashboard_content(df_raw, user):
             "전년 동월 매출": st.column_config.TextColumn("전년 동월 매출", width=120, alignment="right"),
             "당해 누적 매출": st.column_config.TextColumn("당해 누적 매출", width=130, alignment="right"),
             "전년 동기 누적 대비 증감액": st.column_config.TextColumn("전년 동기 누적 대비 증감액", width=160, alignment="right"),
-            "전년 동기 누적 대비 증감율": st.column_config.TextColumn("전년 동기 누적 대비 증감율", width=120, alignment="right"),
+            "전년 동기 대비 증감율": st.column_config.TextColumn("전년 동기 대비 증감율", width=120, alignment="right"),
             "전년 동기 누적": st.column_config.TextColumn("전년 동기 누적", width=130, alignment="right"),
             "m_diff": None,
             "cum_diff": None,
