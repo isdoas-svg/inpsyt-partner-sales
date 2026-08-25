@@ -16,52 +16,23 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 
 DEFAULT_ORGS = {}
 
-def load_persistent_db():
-    """Google Sheets에서 계정 및 기관 DB를 실시간으로 완전히 읽어옵니다."""
-    users = {}
-    orgs = DEFAULT_ORGS.copy()
-    targets = {("ORG_A", 2026): 1300000000, ("ORG_B", 2026): 1800000000, ("ORG_C", 2026): 1000000000}
-
+def load_sales_data():
+    """Google Sheets의 sales 워크시트에서 매출 데이터를 실시간으로 불러옵니다."""
     try:
-        # 캐시를 강제로 비우고(ttl=0) 구글 시트 데이터를 최신 상태로 읽기
-        df_users = conn.read(worksheet="users", ttl=0)
-        
-        if df_users is not None and not df_users.empty:
-            # 결측치(NaN) 빈 문자열로 처리
-            df_users = df_users.fillna("")
-            
-            for _, row in df_users.iterrows():
-                uid = str(row["username"]).strip()
-                if not uid:
-                    continue
-                    
-                users[uid] = {
-                    "password": str(row["password"]).strip(),
-                    "role": str(row["role"]).strip(),
-                    "org_code": str(row["org_code"]).strip(),
-                }
-                
-                # 지사 회원일 경우 기관 정보 동기화
-                if row["role"] == "user" and row.get("org_name"):
-                    orgs[str(row["org_code"]).strip()] = {"org_name": str(row["org_name"]).strip()}
+        sheet_url = st.secrets["connections"]["gsheets"].get("spreadsheet")
+        df_sales = conn.read(spreadsheet=sheet_url, worksheet="sales", ttl=0) if sheet_url else conn.read(worksheet="sales", ttl=0)
+        return df_sales
     except Exception as e:
-        st.warning(f"⚠️ Google Sheets 데이터를 불러오는 중 오류 발생 (기본 설정으로 구동): {e}")
-
-    # admin(총관리자) 계정 보장
-    if "admin" not in users:
-        users["admin"] = {
-            "password": "1234",
-            "role": "super_admin",
-            "org_code": "ALL",
-            "org_name": "전체(총 관리자)",
-        }
-
-    return orgs, users, targets
+        # 파일이나 구글 시트에 매출 데이터가 없는 경우를 대비한 처리
+        if os.path.exists(SALES_FILE_PATH):
+            return pd.read_csv(SALES_FILE_PATH)
+        return pd.DataFrame(columns=["년도", "월", "기관코드", "기관", "매출금액"])
 
 def load_persistent_db():
+    """Google Sheets에서 계정 및 기관 DB를 실시간으로 읽어옵니다."""
     users = {}
     orgs = DEFAULT_ORGS.copy()
-    targets = {("ORG_A", 2026): 1300000000, ("ORG_B", 2026): 1800000000, ("ORG_C", 2026): 1000000000}
+    targets = {}  # ← ORG_A, B, C 고정 목표 매출 완전히 삭제!
 
     try:
         sheet_url = st.secrets["connections"]["gsheets"].get("spreadsheet")
@@ -83,7 +54,7 @@ def load_persistent_db():
                     continue
                     
                 users[uid] = {
-                    "password": clean_str(row["password"]), # ← 비밀번호 소수점 제거!
+                    "password": clean_str(row["password"]), # 소수점 제거 적용
                     "role": clean_str(row["role"]),
                     "org_code": clean_str(row["org_code"]),
                 }
@@ -195,46 +166,6 @@ if "user_info" not in st.session_state:
     st.session_state["user_info"] = None
 if "selected_detail_org" not in st.session_state:
     st.session_state["selected_detail_org"] = None
-
-
-# -----------------------------------------------------------------------------
-# 3. 샘플 데이터 생성 함수
-# -----------------------------------------------------------------------------
-def get_sample_data():
-    data = []
-    org_mapping = {
-        "ORG_A": "A기관(홍길동지사)",
-        "ORG_B": "B기관",
-        "ORG_C": "C기관",
-    }
-    years = [2020, 2021, 2022, 2023, 2024, 2025, 2026]
-    months = list(range(1, 13))
-
-    np.random.seed(42)
-    for year in years:
-        for month in months:
-            for org_code, org_name in org_mapping.items():
-                if year == 2020 and month < 12:
-                    continue
-                if year == 2026 and month > 11:
-                    continue
-                base = (
-                    1000
-                    if org_code == "ORG_A"
-                    else (1500 if org_code == "ORG_B" else 800)
-                )
-                amount = int(
-                    base + np.random.randint(-200, 300) + (year - 2025) * 100
-                )
-                data.append({
-                    "년도": year,
-                    "월": month,
-                    "기관코드": org_code,
-                    "기관": org_name,
-                    "매출금액": amount * 10000,
-                })
-    return pd.DataFrame(data)
-
 
 if "df_accumulated" not in st.session_state:
     st.session_state["df_accumulated"] = load_sales_data()
@@ -359,9 +290,8 @@ def admin_account_page():
                         "org_code": new_org_code,
                     }
                     
-                    save_persistent_db()
                     role_str_map = {"super_admin": "총 관리자", "hq_admin": "본사 관리자", "user": f"'{new_org_name}' 지사 회원"}
-                    st.success(f"🎉 **{role_str_map[target_role]}** 계정('{new_id}')이 등록 및 영구 저장되었습니다.")
+                    st.success(f"🎉 **{role_str_map[target_role]}** 계정('{new_id}')이 등록되었습니다.")
                     st.rerun()
 
     with tab_edit_user:
@@ -409,8 +339,7 @@ def admin_account_page():
                             if st.session_state["user_info"]["username"] == selected_user:
                                 st.session_state["user_info"]["username"] = new_id_clean
 
-                            save_persistent_db()
-                            st.success(f"계정 정보가 성공적으로 변경 및 저장되었습니다. (ID: **{new_id_clean}**)")
+                            st.success(f"계정 정보가 성공적으로 변경되었습니다. (ID: **{new_id_clean}**)")
                             st.rerun()
 
     with tab_edit_org:
@@ -447,8 +376,7 @@ def admin_account_page():
                             st.session_state["df_accumulated"] = df_acc
                             save_sales_data(df_acc)
 
-                        save_persistent_db()
-                        st.success(f"기관명이 **'{current_name}'** ➡️ **'{new_name_clean}'**(으)로 변경 및 영구 저장되었습니다.")
+                        st.success(f"기관명이 **'{current_name}'** ➡️ **'{new_name_clean}'**(으)로 변경되었습니다.")
                         st.rerun()
 
     with tab_delete_user:
@@ -509,7 +437,6 @@ def admin_account_page():
                         st.warning("⚠️ 삭제된 계정 정보는 복구할 수 없습니다.")
                         if st.button("🚨 해당 계정 삭제", type="primary", use_container_width=True):
                             st.session_state["user_db"].pop(selected_del_user)
-                            save_persistent_db()
                             st.success(f"계정 **'{selected_del_user}'** 이(가) 성공적으로 삭제되었습니다.")
                             st.rerun()
 
@@ -621,7 +548,6 @@ def admin_target_page():
                 final_amount = int(cleaned_num) if cleaned_num else 0
 
                 st.session_state["targets_db"][(code, selected_fy)] = final_amount
-                save_persistent_db()
                 st.toast(
                     f"✅ [{org_name}] {selected_fy}년 목표 매출이 **{final_amount:,}원** ({st.session_state[kr_key]})으로 저장되었습니다!",
                     icon="🎉",
@@ -728,7 +654,7 @@ def admin_upload_page():
                         st.session_state["df_accumulated"] = merged_df
                         save_sales_data(merged_df)
                         
-                        st.success(f"🎉 데이터 업로드 및 영구 저장 완료! (현재 총 {len(merged_df):,}건 보관 중)")
+                        st.success(f"🎉 데이터 업로드 완료! (현재 총 {len(merged_df):,}건 보관 중)")
                         st.dataframe(new_df.head(10), use_container_width=False)
                 except Exception as e:
                     st.error(f"파일을 읽는 도중 오류가 발생했습니다: {e}")
@@ -763,7 +689,7 @@ def admin_upload_page():
             end_key = end_year * 100 + end_month
 
             if start_key > end_key:
-                st.error("시작 기간이 종료 기간보다 이후일 수 কাশী.")
+                st.error("시작 기간이 종료 기간보다 이후일 수 없습니다.")
             else:
                 filtered_dl_df = df_acc_calc[
                     (df_acc_calc["period_key"] >= start_key) & (df_acc_calc["period_key"] <= end_key)
@@ -952,7 +878,6 @@ def render_dashboard_content(df_raw, user):
     st.title("📈 매출 분석 대시보드")
     st.caption("※ 회계연도 기준: 전년도 12월 ~ 당해년도 11월")
 
-    # 지사 DB 상에 정식 등록된 기관명 추출
     registered_org_names = sorted([info["org_name"] for info in st.session_state["orgs_db"].values()])
 
     selected_org = "전체"
