@@ -19,7 +19,6 @@ DEFAULT_ORGS = {
     "ORG_C": {"org_name": "C기관"},
 }
 
-# 브라우저의 '비밀번호 노출 경고' 알림을 피하기 위해 단순 패스워드 패턴 변경
 DEFAULT_USERS = {
     "admin": {
         "password": "Insight_Admin_2026!#",
@@ -45,23 +44,34 @@ DEFAULT_USERS = {
 }
 
 def load_persistent_db():
+    orgs = DEFAULT_ORGS.copy()
+    users = DEFAULT_USERS.copy()
+    targets = {("ORG_A", 2026): 1300000000, ("ORG_B", 2026): 1800000000, ("ORG_C", 2026): 1000000000}
+
     if os.path.exists(DB_FILE_PATH):
         try:
             with open(DB_FILE_PATH, "r", encoding="utf-8") as f:
                 data = json.load(f)
+                
+                # 기존 사용자가 저장해둔 계정 및 기관 정보가 있다면 최상위 저장소로 읽어옴
+                if "orgs_db" in data and data["orgs_db"]:
+                    orgs = data["orgs_db"]
+                if "user_db" in data and data["user_db"]:
+                    users = data["user_db"]
+
                 raw_targets = data.get("targets_db", {})
                 converted_targets = {}
                 for k, v in raw_targets.items():
                     parts = k.rsplit("_", 1)
                     if len(parts) == 2:
                         converted_targets[(parts[0], int(parts[1]))] = v
-                
-                orgs = data.get("orgs_db", DEFAULT_ORGS)
-                users = data.get("user_db", DEFAULT_USERS)
-                return orgs, users, converted_targets
-        except Exception:
-            pass
-    return DEFAULT_ORGS.copy(), DEFAULT_USERS.copy(), {("ORG_A", 2026): 1300000000, ("ORG_B", 2026): 1800000000, ("ORG_C", 2026): 1000000000}
+                if converted_targets:
+                    targets = converted_targets
+
+        except Exception as e:
+            st.error(f"DB 데이터를 불러오는 중 오류 발생: {e}")
+
+    return orgs, users, targets
 
 def save_persistent_db():
     orgs = st.session_state.get("orgs_db", {})
@@ -89,7 +99,6 @@ def save_sales_data(df):
     if df is not None:
         df.to_csv(SALES_FILE_PATH, index=False, encoding="utf-8-sig")
 
-# 세션 파일 저장 (새로고침 로그인 유지용)
 def save_session_cache(user_info):
     try:
         with open(SESSION_FILE_PATH, "w", encoding="utf-8") as f:
@@ -529,7 +538,6 @@ def admin_account_page():
                     else:
                         st.warning("⚠️ 삭제된 계정 정보는 복구할 수 없습니다.")
                         if st.button("🚨 해당 계정 삭제", type="primary", use_container_width=True):
-                            # [핵심 수정 1] 계정 삭제 시 다른 계정에서 같은 기관 코드를 쓰지 않는 경우 orgs_db에서도 함께 제거
                             deleted_user_data = st.session_state["user_db"].pop(selected_del_user)
                             target_code = deleted_user_data.get("org_code")
 
@@ -772,7 +780,10 @@ def admin_upload_page():
 
             all_years = sorted(list(df_acc["년도"].unique()))
             all_months = list(range(1, 13))
-            all_orgs = ["전체"] + sorted(list(df_acc["기관"].unique()))
+            
+            # 지사 목록 추출 시 등록된 지사만 포함
+            registered_orgs = sorted([info["org_name"] for info in st.session_state["orgs_db"].values()])
+            all_orgs = ["전체"] + registered_orgs
 
             col_drop_area, _ = st.columns([5, 5])
             with col_drop_area:
@@ -797,6 +808,9 @@ def admin_upload_page():
                 filtered_dl_df = df_acc_calc[
                     (df_acc_calc["period_key"] >= start_key) & (df_acc_calc["period_key"] <= end_key)
                 ]
+
+                # [핵심 수정 2] 다운로드 목록에서도 정식 등록된 지사 데이터만 필터링
+                filtered_dl_df = filtered_dl_df[filtered_dl_df["기관"].isin(registered_orgs)]
 
                 if selected_dl_org != "전체":
                     filtered_dl_df = filtered_dl_df[filtered_dl_df["기관"] == selected_dl_org]
@@ -913,8 +927,6 @@ def main_dashboard():
         if st.button("로그아웃", use_container_width=True):
             st.session_state["logged_in"] = False
             st.session_state["user_info"] = None
-            
-            # [핵심 수정 2] 로그아웃 시 캐시된 세션 파일 완전 제거
             clear_session_cache()
             st.rerun()
 
@@ -987,6 +999,9 @@ def render_dashboard_content(df_raw, user):
     # 지사 DB 상에 정식 등록된 기관명 추출
     registered_org_names = sorted([info["org_name"] for info in st.session_state["orgs_db"].values()])
 
+    # [핵심 수정 2] 미등록 지사 데이터 전체 제외 (정식 등록된 지사의 데이터만 조회에 반영)
+    df_raw = df_raw[df_raw["기관"].isin(registered_org_names)].copy()
+
     selected_org = "전체"
     if user["role"] in ["super_admin", "hq_admin"]:
         st.subheader("👑 관리자 모드: 전체 기관 데이터 조회")
@@ -1012,12 +1027,16 @@ def render_dashboard_content(df_raw, user):
 
     st.markdown("---")
 
-    latest_fiscal_year = filtered_df["회계연도"].max()
+    latest_fiscal_year = filtered_df["회계연도"].max() if not filtered_df.empty else 2026
     prev_fiscal_year = latest_fiscal_year - 1
 
     latest_rows = filtered_df[filtered_df["회계연도"] == latest_fiscal_year]
-    latest_year = latest_rows["년도"].max()
-    latest_month = latest_rows[latest_rows["년도"] == latest_year]["월"].max()
+    if not latest_rows.empty:
+        latest_year = latest_rows["년도"].max()
+        latest_month = latest_rows[latest_rows["년도"] == latest_year]["월"].max()
+    else:
+        latest_year = 2026
+        latest_month = 1
 
     curr_sales = filtered_df[(filtered_df["년도"] == latest_year) & (filtered_df["월"] == latest_month)]["매출금액"].sum()
     prev_sales = filtered_df[(filtered_df["년도"] == latest_year - 1) & (filtered_df["월"] == latest_month)]["매출금액"].sum()
@@ -1183,6 +1202,9 @@ def render_dashboard_content(df_raw, user):
 
         merged_rank = pd.merge(curr_rank_df, prev_rank_df, on="기관", how="left").fillna({"전년전체매출": 0})
         merged_rank = pd.merge(merged_rank, prev_same_period_df, on="기관", how="left").fillna({"전년동기매출": 0})
+        
+        # 정식 등록된 기관만 순위표에 노출
+        merged_rank = merged_rank[merged_rank["기관"].isin(registered_org_names)]
         merged_rank = merged_rank.sort_values(by="당해매출", ascending=False).reset_index(drop=True)
 
         merged_rank["연도"] = f"{selected_rank_fy}년"
@@ -1257,7 +1279,7 @@ def render_dashboard_content(df_raw, user):
         selected_base_fy = st.selectbox("📅 기준 연도", all_fy_list, index=0, key="detail_analysis_base_fy")
         st.caption(f"선택한 **{selected_base_fy} 회계연도 포함 직전 6개년** 매출 추이 및 전년 대비 증감 현황을 조회합니다.")
 
-        # 지사 DB에 정식 등록되어 있는 기관만 보여줌
+        # 지사 DB에 정식 등록되어 있는 기관만 노출
         unique_org_list = registered_org_names
 
         if unique_org_list:
