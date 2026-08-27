@@ -5,10 +5,6 @@ import numpy as np
 import plotly.express as px
 import streamlit as st
 from streamlit_gsheets import GSheetsConnection
-from streamlit_cookies_controller import CookieController
-
-# 쿠키 컨트롤러 초기화
-controller = CookieController()
 
 # ==========================================
 # 0. 데이터 영구 저장 유틸리티 함수 (Google Sheets 완벽 실시간 연동)
@@ -33,15 +29,28 @@ def load_sales_data():
         return pd.DataFrame(columns=["년도", "월", "기관코드", "기관", "매출금액"])
 
 def load_persistent_db():
-    """Google Sheets에서 계정 및 기관 DB를 실시간으로 읽어옵니다."""
+    """Google Sheets에서 계정, 기관 및 목표 매출 DB를 실시간으로 읽어옵니다."""
     users = {}
     orgs = DEFAULT_ORGS.copy()
-    targets = {}  # ← ORG_A, B, C 고정 목표 매출 완전히 삭제!
+    targets = {}
 
     try:
         sheet_url = st.secrets["connections"]["gsheets"].get("spreadsheet")
         df_users = conn.read(spreadsheet=sheet_url, worksheet="users", ttl=0) if sheet_url else conn.read(worksheet="users", ttl=0)
         
+        # --- [추가] Google Sheets 'targets' 워크시트에서 목표 매출 불러오기 ---
+        try:
+            df_targets = conn.read(spreadsheet=sheet_url, worksheet="targets", ttl=0) if sheet_url else conn.read(worksheet="targets", ttl=0)
+            if df_targets is not None and not df_targets.empty:
+                for _, row in df_targets.iterrows():
+                    code = str(row["org_code"]).strip().replace(".0", "")
+                    year = int(row["year"])
+                    amt = int(row["target_amount"])
+                    targets[(code, year)] = amt
+        except Exception:
+            pass
+        # ---------------------------------------------------------------
+
         if df_users is not None and not df_users.empty:
             df_users = df_users.fillna("")
             
@@ -70,7 +79,7 @@ def load_persistent_db():
 
     if "admin" not in users:
         users["admin"] = {
-            "password": "1234",
+            "password": "adminpassword",
             "role": "super_admin",
             "org_code": "ALL",
             "org_name": "전체(총 관리자)",
@@ -91,6 +100,21 @@ def save_sales_data(df):
             st.toast("✅ Google Sheets에 매출 데이터가 안전하게 저장되었습니다!", icon="💾")
         except Exception as e:
             st.error(f"⚠️ Google Sheets 매출 데이터 저장 중 오류 발생: {e}")
+
+def save_targets_data():
+    """st.session_state['targets_db'] 데이터를 구글 시트 'targets' 워크시트에 보존합니다."""
+    targets_db = st.session_state.get("targets_db", {})
+    data = []
+    for (code, year), amt in targets_db.items():
+        data.append({"org_code": code, "year": year, "target_amount": amt})
+    
+    df_targets = pd.DataFrame(data)
+    try:
+        sheet_url = st.secrets["connections"]["gsheets"].get("spreadsheet")
+        conn.update(spreadsheet=sheet_url, worksheet="targets", data=df_targets)
+        st.toast("✅ Google Sheets에 목표 매출 데이터가 안전하게 저장되었습니다!", icon="💾")
+    except Exception as e:
+        st.error(f"⚠️ Google Sheets 목표 매출 데이터 저장 중 오류 발생: {e}")
 
 
 # ==========================================
@@ -184,34 +208,6 @@ if "selected_detail_org" not in st.session_state:
 if "df_accumulated" not in st.session_state:
     st.session_state["df_accumulated"] = load_sales_data()
 
-# ==========================================
-# 쿠키 기반 자동 로그인 세션 복원
-# ==========================================
-cookie_user = controller.get("auth_user")
-if cookie_user and not st.session_state["logged_in"]:
-    user_db = st.session_state["user_db"]
-    orgs_db = st.session_state["orgs_db"]
-    
-    if cookie_user in user_db:
-        u_info = user_db[cookie_user]
-        role = u_info.get("role", "user")
-        org_code = u_info.get("org_code", "ALL")
-
-        if role == "super_admin":
-            current_org_name = "전체(총 관리자)"
-        elif role == "hq_admin":
-            current_org_name = "전체(본사 관리자)"
-        else:
-            current_org_name = orgs_db.get(org_code, {}).get("org_name", "미지정 기관")
-
-        st.session_state["logged_in"] = True
-        st.session_state["user_info"] = {
-            "username": cookie_user,
-            "role": role,
-            "org_code": org_code,
-            "org_name": current_org_name,
-        }
-
 
 # -----------------------------------------------------------------------------
 # 4. 로그인 화면 (st.form 적용으로 엔터키 로그인 지원)
@@ -251,10 +247,6 @@ def login_screen():
                     "org_code": org_code,
                     "org_name": current_org_name,
                 }
-                
-                # 쿠키에 로그인 정보 저장 (7일간 유지)
-                controller.set("auth_user", username, max_age=86400 * 7)
-                
                 st.success("로그인 성공!")
                 st.rerun()
             else:
@@ -596,6 +588,11 @@ def admin_target_page():
                 final_amount = int(cleaned_num) if cleaned_num else 0
 
                 st.session_state["targets_db"][(code, selected_fy)] = final_amount
+                
+                # --- [추가] Google Sheets 영구 보존 로직 호출 ---
+                save_targets_data()
+                # ----------------------------------------------
+                
                 st.toast(
                     f"✅ [{org_name}] {selected_fy}년 목표 매출이 **{final_amount:,}원** ({st.session_state[kr_key]})으로 저장되었습니다!",
                     icon="🎉",
@@ -856,7 +853,6 @@ def main_dashboard():
         st.write(f"**소속 기관:** {user['org_name']}")
 
         if st.button("로그아웃", use_container_width=True):
-            controller.remove("auth_user")
             st.session_state["logged_in"] = False
             st.session_state["user_info"] = None
             st.rerun()
@@ -1278,6 +1274,7 @@ def render_dashboard_content(df_raw, user):
 
         display_indiv_df = pd.DataFrame(results)
 
+        # --- [수정] 오타 수정: "전년 동기 대비 증감율" -> "전년 동기 누적 대비 증감율" ---
         ordered_cols = [
             "년도", "월", "당월 매출", 
             "전년 동월 대비 증감액", "전년 동월 대비 증감율", "전년 동월 매출", 
@@ -1321,7 +1318,7 @@ def render_dashboard_content(df_raw, user):
             "전년 동월 매출": st.column_config.TextColumn("전년 동월 매출", width=120, alignment="right"),
             "당해 누적 매출": st.column_config.TextColumn("당해 누적 매출", width=130, alignment="right"),
             "전년 동기 누적 대비 증감액": st.column_config.TextColumn("전년 동기 누적 대비 증감액", width=160, alignment="right"),
-            "전년 동기 대비 증감율": st.column_config.TextColumn("전년 동기 대비 증감율", width=120, alignment="right"),
+            "전년 동기 누적 대비 증감율": st.column_config.TextColumn("전년 동기 누적 대비 증감율", width=120, alignment="right"),
             "전년 동기 누적": st.column_config.TextColumn("전년 동기 누적", width=130, alignment="right"),
             "m_diff": None,
             "cum_diff": None,
