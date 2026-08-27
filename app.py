@@ -66,7 +66,7 @@ def load_persistent_db():
 
     if "admin" not in users:
         users["admin"] = {
-            "password": "adminpassword",
+            "password": "1234",
             "role": "super_admin",
             "org_code": "ALL",
             "org_name": "전체(총 관리자)",
@@ -1245,7 +1245,7 @@ def render_dashboard_content(df_raw, user):
             "년도", "월", "당월 매출", 
             "전년 동월 대비 증감액", "전년 동월 대비 증감율", "전년 동월 매출", 
             "당해 누적 매출", 
-            "전년 동기 누적 대비 증감액", "전년 동기 대비 증감율", "전년 동기 누적",
+            "전년 동기 누적 대비 증감액", "전년 동기 누적 대비 증감율", "전년 동기 누적",
             "m_diff", "cum_diff"
         ]
         display_indiv_df = display_indiv_df[ordered_cols]
