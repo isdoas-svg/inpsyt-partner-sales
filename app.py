@@ -5,6 +5,10 @@ import numpy as np
 import plotly.express as px
 import streamlit as st
 from streamlit_gsheets import GSheetsConnection
+from streamlit_cookies_controller import CookieController
+
+# 쿠키 컨트롤러 초기화
+controller = CookieController()
 
 # ==========================================
 # 0. 데이터 영구 저장 유틸리티 함수 (Google Sheets 완벽 실시간 연동)
@@ -180,6 +184,34 @@ if "selected_detail_org" not in st.session_state:
 if "df_accumulated" not in st.session_state:
     st.session_state["df_accumulated"] = load_sales_data()
 
+# ==========================================
+# 쿠키 기반 자동 로그인 세션 복원
+# ==========================================
+cookie_user = controller.get("auth_user")
+if cookie_user and not st.session_state["logged_in"]:
+    user_db = st.session_state["user_db"]
+    orgs_db = st.session_state["orgs_db"]
+    
+    if cookie_user in user_db:
+        u_info = user_db[cookie_user]
+        role = u_info.get("role", "user")
+        org_code = u_info.get("org_code", "ALL")
+
+        if role == "super_admin":
+            current_org_name = "전체(총 관리자)"
+        elif role == "hq_admin":
+            current_org_name = "전체(본사 관리자)"
+        else:
+            current_org_name = orgs_db.get(org_code, {}).get("org_name", "미지정 기관")
+
+        st.session_state["logged_in"] = True
+        st.session_state["user_info"] = {
+            "username": cookie_user,
+            "role": role,
+            "org_code": org_code,
+            "org_name": current_org_name,
+        }
+
 
 # -----------------------------------------------------------------------------
 # 4. 로그인 화면 (st.form 적용으로 엔터키 로그인 지원)
@@ -219,6 +251,10 @@ def login_screen():
                     "org_code": org_code,
                     "org_name": current_org_name,
                 }
+                
+                # 쿠키에 로그인 정보 저장 (7일간 유지)
+                controller.set("auth_user", username, max_age=86400 * 7)
+                
                 st.success("로그인 성공!")
                 st.rerun()
             else:
@@ -820,6 +856,7 @@ def main_dashboard():
         st.write(f"**소속 기관:** {user['org_name']}")
 
         if st.button("로그아웃", use_container_width=True):
+            controller.remove("auth_user")
             st.session_state["logged_in"] = False
             st.session_state["user_info"] = None
             st.rerun()
