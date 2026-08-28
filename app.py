@@ -1189,6 +1189,15 @@ def render_dashboard_content(df_raw, user):
         st.dataframe(styled_rank_df, column_config=rank_config, hide_index=True, use_container_width=False)
 
         st.markdown("---")
+        
+        # ---------------------------------------------------------
+        # [신규 추가] 전체 선택 시 회계 연도별 전체 매출 6개년 추이 & 표
+        # ---------------------------------------------------------
+        st.subheader("🌐 회계 연도별 전체 매출")
+        selected_all_base_fy = st.selectbox("📅 기준 연도 선택", all_fy_list, index=0, key="all_6y_base_fy")
+        render_6year_analysis(df_raw, "전체 지사 총합", selected_all_base_fy)
+
+        st.markdown("---")
         st.subheader("🏢 연도별 각 지사 매출")
 
         selected_base_fy = st.selectbox("📅 기준 연도", all_fy_list, index=0, key="detail_analysis_base_fy")
@@ -1337,8 +1346,11 @@ def render_6year_analysis(df_target_source, org_title, base_fy):
     six_years = list(range(base_fy - 5, base_fy + 1))
     st.info(f"📊 **[{org_title}] {six_years[0]}년 ~ {six_years[-1]}년 (6개년) 연도별 매출 상세 분석**")
 
-    org_6y_df = df_target_source[(df_target_source["기관"] == org_title) if "기관" in df_target_source.columns else df_target_source["회계연도"].isin(six_years)].copy()
-    org_6y_df = org_6y_df[org_6y_df["회계연도"].isin(six_years)]
+    if org_title == "전체 지사 총합":
+        org_6y_df = df_target_source[df_target_source["회계연도"].isin(six_years)].copy()
+    else:
+        org_6y_df = df_target_source[(df_target_source["기관"] == org_title) if "기관" in df_target_source.columns else df_target_source["회계연도"].isin(six_years)].copy()
+        org_6y_df = org_6y_df[org_6y_df["회계연도"].isin(six_years)]
     
     summary_6y = org_6y_df.groupby("회계연도", as_index=False)["매출금액"].sum()
     summary_6y = pd.merge(pd.DataFrame({"회계연도": six_years}), summary_6y, on="회계연도", how="left").fillna({"매출금액": 0}).sort_values(by="회계연도").reset_index(drop=True)
