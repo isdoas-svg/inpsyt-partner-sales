@@ -7,7 +7,7 @@ import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 
 # ==========================================
-# 0. 데이터 영구 저장 유틸리티 함수 (Google Sheets 완벽 실시간 연동)
+# 0. 데이터 영구 저장 유틸리티 함수 (Google Sheets 연동, 캐싱 및 로딩 메시지 제어)
 # ==========================================
 SALES_FILE_PATH = "sales_data.csv"
 
@@ -16,66 +16,66 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 
 DEFAULT_ORGS = {}
 
+@st.cache_data(ttl=60)
 def load_sales_data():
-    """Google Sheets의 sales 워크시트에서 매출 데이터를 실시간으로 불러옵니다."""
-    try:
-        sheet_url = st.secrets["connections"]["gsheets"].get("spreadsheet")
-        df_sales = conn.read(spreadsheet=sheet_url, worksheet="sales", ttl=0) if sheet_url else conn.read(worksheet="sales", ttl=0)
-        return df_sales
-    except Exception as e:
-        # 파일이나 구글 시트에 매출 데이터가 없는 경우를 대비한 처리
-        if os.path.exists(SALES_FILE_PATH):
-            return pd.read_csv(SALES_FILE_PATH)
-        return pd.DataFrame(columns=["년도", "월", "기관코드", "기관", "매출금액"])
+    """Google Sheets의 sales 워크시트에서 매출 데이터를 불러옵니다. (로딩 메시지 커스텀)"""
+    with st.spinner("Running..."):
+        try:
+            sheet_url = st.secrets["connections"]["gsheets"].get("spreadsheet")
+            df_sales = conn.read(spreadsheet=sheet_url, worksheet="sales", ttl=60) if sheet_url else conn.read(worksheet="sales", ttl=60)
+            return df_sales
+        except Exception as e:
+            if os.path.exists(SALES_FILE_PATH):
+                return pd.read_csv(SALES_FILE_PATH)
+            return pd.DataFrame(columns=["년도", "월", "기관코드", "기관", "매출금액"])
 
+@st.cache_data(ttl=60)
 def load_persistent_db():
-    """Google Sheets에서 계정, 기관 및 목표 매출 DB를 실시간으로 읽어옵니다."""
+    """Google Sheets에서 계정, 기관 및 목표 매출 DB를 불러옵니다. (로딩 메시지 커스텀)"""
     users = {}
     orgs = DEFAULT_ORGS.copy()
     targets = {}
 
-    try:
-        sheet_url = st.secrets["connections"]["gsheets"].get("spreadsheet")
-        df_users = conn.read(spreadsheet=sheet_url, worksheet="users", ttl=0) if sheet_url else conn.read(worksheet="users", ttl=0)
-        
-        # --- [추가] Google Sheets 'targets' 워크시트에서 목표 매출 불러오기 ---
+    with st.spinner("Running..."):
         try:
-            df_targets = conn.read(spreadsheet=sheet_url, worksheet="targets", ttl=0) if sheet_url else conn.read(worksheet="targets", ttl=0)
-            if df_targets is not None and not df_targets.empty:
-                for _, row in df_targets.iterrows():
-                    code = str(row["org_code"]).strip().replace(".0", "")
-                    year = int(row["year"])
-                    amt = int(row["target_amount"])
-                    targets[(code, year)] = amt
-        except Exception:
-            pass
-        # ---------------------------------------------------------------
-
-        if df_users is not None and not df_users.empty:
-            df_users = df_users.fillna("")
+            sheet_url = st.secrets["connections"]["gsheets"].get("spreadsheet")
+            df_users = conn.read(spreadsheet=sheet_url, worksheet="users", ttl=60) if sheet_url else conn.read(worksheet="users", ttl=60)
             
-            for _, row in df_users.iterrows():
-                # 소수점(.0) 제거 후 순수 문자열 처리 함수
-                def clean_str(val):
-                    s = str(val).strip()
-                    if s.endswith(".0"):
-                        return s[:-2]
-                    return s
+            try:
+                df_targets = conn.read(spreadsheet=sheet_url, worksheet="targets", ttl=60) if sheet_url else conn.read(worksheet="targets", ttl=60)
+                if df_targets is not None and not df_targets.empty:
+                    for _, row in df_targets.iterrows():
+                        code = str(row["org_code"]).strip().replace(".0", "")
+                        year = int(row["year"])
+                        amt = int(row["target_amount"])
+                        targets[(code, year)] = amt
+            except Exception:
+                pass
 
-                uid = clean_str(row["username"])
-                if not uid:
-                    continue
-                    
-                users[uid] = {
-                    "password": clean_str(row["password"]), # 소수점 제거 적용
-                    "role": clean_str(row["role"]),
-                    "org_code": clean_str(row["org_code"]),
-                }
+            if df_users is not None and not df_users.empty:
+                df_users = df_users.fillna("")
                 
-                if row["role"] == "user" and row.get("org_name"):
-                    orgs[clean_str(row["org_code"])] = {"org_name": clean_str(row["org_name"])}
-    except Exception as e:
-        st.warning(f"⚠️ Google Sheets 데이터를 불러오는 중 오류 발생 (기본 설정으로 구동): {e}")
+                for _, row in df_users.iterrows():
+                    def clean_str(val):
+                        s = str(val).strip()
+                        if s.endswith(".0"):
+                            return s[:-2]
+                        return s
+
+                    uid = clean_str(row["username"])
+                    if not uid:
+                        continue
+                        
+                    users[uid] = {
+                        "password": clean_str(row["password"]),
+                        "role": clean_str(row["role"]),
+                        "org_code": clean_str(row["org_code"]),
+                    }
+                    
+                    if row["role"] == "user" and row.get("org_name"):
+                        orgs[clean_str(row["org_code"])] = {"org_name": clean_str(row["org_name"])}
+        except Exception as e:
+            st.warning(f"⚠️ Google Sheets 데이터를 불러오는 중 오류 발생 (기본 설정으로 구동): {e}")
 
     if "admin" not in users:
         users["admin"] = {
@@ -90,13 +90,12 @@ def load_persistent_db():
 def save_sales_data(df):
     """매출 데이터를 백업용 로컬 CSV 저장과 동시에 Google Sheets 'sales' 워크시트에 업데이트합니다."""
     if df is not None:
-        # 1. 백업용 로컬 CSV 저장
         df.to_csv(SALES_FILE_PATH, index=False, encoding="utf-8-sig")
-        
-        # 2. Google Sheets 실시간 업데이트 (영구 보존)
         try:
-            sheet_url = st.secrets["connections"]["gsheets"].get("spreadsheet")
-            conn.update(spreadsheet=sheet_url, worksheet="sales", data=df)
+            with st.spinner("Running..."):
+                sheet_url = st.secrets["connections"]["gsheets"].get("spreadsheet")
+                conn.update(spreadsheet=sheet_url, worksheet="sales", data=df)
+                st.cache_data.clear()
             st.toast("✅ Google Sheets에 매출 데이터가 안전하게 저장되었습니다!", icon="💾")
         except Exception as e:
             st.error(f"⚠️ Google Sheets 매출 데이터 저장 중 오류 발생: {e}")
@@ -110,8 +109,10 @@ def save_targets_data():
     
     df_targets = pd.DataFrame(data)
     try:
-        sheet_url = st.secrets["connections"]["gsheets"].get("spreadsheet")
-        conn.update(spreadsheet=sheet_url, worksheet="targets", data=df_targets)
+        with st.spinner("Running..."):
+            sheet_url = st.secrets["connections"]["gsheets"].get("spreadsheet")
+            conn.update(spreadsheet=sheet_url, worksheet="targets", data=df_targets)
+            st.cache_data.clear()
         st.toast("✅ Google Sheets에 목표 매출 데이터가 안전하게 저장되었습니다!", icon="💾")
     except Exception as e:
         st.error(f"⚠️ Google Sheets 목표 매출 데이터 저장 중 오류 발생: {e}")
@@ -210,7 +211,7 @@ if "df_accumulated" not in st.session_state:
 
 
 # -----------------------------------------------------------------------------
-# 4. 로그인 화면 (st.form 적용으로 엔터키 로그인 지원)
+# 4. 로그인 화면
 # -----------------------------------------------------------------------------
 def login_screen():
     _, center_col, _ = st.columns([3.75, 2.5, 3.75])
@@ -589,9 +590,7 @@ def admin_target_page():
 
                 st.session_state["targets_db"][(code, selected_fy)] = final_amount
                 
-                # --- [추가] Google Sheets 영구 보존 로직 호출 ---
                 save_targets_data()
-                # ----------------------------------------------
                 
                 st.toast(
                     f"✅ [{org_name}] {selected_fy}년 목표 매출이 **{final_amount:,}원** ({st.session_state[kr_key]})으로 저장되었습니다!",
@@ -1274,7 +1273,6 @@ def render_dashboard_content(df_raw, user):
 
         display_indiv_df = pd.DataFrame(results)
 
-        # --- [수정] 오타 수정: "전년 동기 대비 증감율" -> "전년 동기 누적 대비 증감율" ---
         ordered_cols = [
             "년도", "월", "당월 매출", 
             "전년 동월 대비 증감액", "전년 동월 대비 증감율", "전년 동월 매출", 
