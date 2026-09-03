@@ -101,7 +101,7 @@ def load_persistent_db():
 
     if "admin" not in users:
         users["admin"] = {
-            "password": "adminpassword",
+            "password": "1234",
             "role": "super_admin",
             "org_code": "ALL",
             "org_name": "전체(총 관리자)",
