@@ -1,13 +1,15 @@
 import io
 import os
+import datetime
 import pandas as pd
 import numpy as np
 import plotly.express as px
 import streamlit as st
 from streamlit_gsheets import GSheetsConnection
+import extra_streamlit_components as stx
 
 # ==========================================
-# 0. 데이터 영구 저장 유틸리티 함수
+# 0. 데이터 영구 저장 유틸리티 및 쿠키 매니저
 # ==========================================
 SALES_FILE_PATH = "sales_data.csv"
 
@@ -15,6 +17,13 @@ SALES_FILE_PATH = "sales_data.csv"
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 DEFAULT_ORGS = {}
+
+# 쿠키 매니저 초기화 함수
+@st.cache_resource
+def get_cookie_manager():
+    return stx.CookieManager()
+
+cookie_manager = get_cookie_manager()
 
 def clean_dataframe_types(df):
     """년도, 월, 매출금액, 기관코드 등의 타입을 정수로 정형화합니다."""
@@ -234,6 +243,36 @@ if "df_accumulated" not in st.session_state:
 
 
 # -----------------------------------------------------------------------------
+# 3. 쿠키 기반 자동 로그인 검사
+# -----------------------------------------------------------------------------
+saved_username = cookie_manager.get("auth_username")
+
+if not st.session_state["logged_in"] and saved_username:
+    user_db = st.session_state["user_db"]
+    orgs_db = st.session_state["orgs_db"]
+    
+    if saved_username in user_db:
+        u_info = user_db[saved_username]
+        role = u_info.get("role", "user")
+        org_code = u_info.get("org_code", "ALL")
+
+        if role == "super_admin":
+            current_org_name = "전체(총 관리자)"
+        elif role == "hq_admin":
+            current_org_name = "전체(본사 관리자)"
+        else:
+            current_org_name = orgs_db.get(org_code, {}).get("org_name", "미지정 기관")
+
+        st.session_state["logged_in"] = True
+        st.session_state["user_info"] = {
+            "username": saved_username,
+            "role": role,
+            "org_code": org_code,
+            "org_name": current_org_name,
+        }
+
+
+# -----------------------------------------------------------------------------
 # 4. 로그인 화면
 # -----------------------------------------------------------------------------
 def login_screen():
@@ -246,6 +285,7 @@ def login_screen():
         with st.form(key="login_form"):
             username = st.text_input("아이디 (ID)", key="login_username_input").strip()
             password = st.text_input("비밀번호 (Password)", type="password", key="login_password_input").strip()
+            remember_me = st.checkbox("로그인 상태 유지 (7일간)", value=True)
             submit_login = st.form_submit_button("로그인", use_container_width=True, type="primary")
         
         if submit_login:
@@ -271,6 +311,12 @@ def login_screen():
                     "org_code": org_code,
                     "org_name": current_org_name,
                 }
+                
+                # 로그인 성공 시 쿠키 저장 (7일 유지)
+                if remember_me:
+                    expires = datetime.datetime.now() + datetime.timedelta(days=7)
+                    cookie_manager.set("auth_username", username, expires_at=expires)
+
                 st.success("로그인 성공!")
                 st.rerun()
             else:
@@ -879,8 +925,10 @@ def main_dashboard():
         st.write(f"**소속 기관:** {user['org_name']}")
 
         if st.button("로그아웃", use_container_width=True):
+            # 세션 정보 및 쿠키 삭제
             st.session_state["logged_in"] = False
             st.session_state["user_info"] = None
+            cookie_manager.delete("auth_username")
             st.rerun()
 
         st.markdown("<br><hr><br>", unsafe_allow_html=True)
