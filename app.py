@@ -7,7 +7,7 @@ import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 
 # ==========================================
-# 0. 데이터 영구 저장 유틸리티 함수 (Google Sheets 연동, 캐싱 및 로딩 메시지 제어)
+# 0. 데이터 영구 저장 유틸리티 함수
 # ==========================================
 SALES_FILE_PATH = "sales_data.csv"
 
@@ -16,22 +16,44 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 
 DEFAULT_ORGS = {}
 
+def clean_dataframe_types(df):
+    """년도, 월, 매출금액, 기관코드 등의 타입을 정수로 정형화합니다."""
+    if df is None or df.empty:
+        return pd.DataFrame(columns=["년도", "월", "기관코드", "기관", "매출금액"])
+    
+    df = df.copy()
+    
+    # 소수점문자열 또는 float 타입을 정수형으로 변환
+    if "년도" in df.columns:
+        df["년도"] = pd.to_numeric(df["년도"], errors="coerce").fillna(0).astype(int)
+    if "월" in df.columns:
+        df["월"] = pd.to_numeric(df["월"], errors="coerce").fillna(0).astype(int)
+    if "매출금액" in df.columns:
+        df["매출금액"] = pd.to_numeric(df["매출금액"], errors="coerce").fillna(0).astype(int)
+    if "기관코드" in df.columns:
+        df["기관코드"] = df["기관코드"].astype(str).str.strip().str.replace(r"\.0$", "", regex=True)
+        
+    # 빈 값 또는 0년도 데이터 제거
+    df = df[(df["년도"] > 0) & (df["월"] > 0)].reset_index(drop=True)
+    return df
+
 @st.cache_data(ttl=60)
 def load_sales_data():
-    """Google Sheets의 sales 워크시트에서 매출 데이터를 불러옵니다. (로딩 메시지 커스텀)"""
+    """Google Sheets의 sales 워크시트에서 매출 데이터를 불러옵니다."""
     with st.spinner("Running..."):
         try:
             sheet_url = st.secrets["connections"]["gsheets"].get("spreadsheet")
             df_sales = conn.read(spreadsheet=sheet_url, worksheet="sales", ttl=60) if sheet_url else conn.read(worksheet="sales", ttl=60)
-            return df_sales
+            return clean_dataframe_types(df_sales)
         except Exception as e:
             if os.path.exists(SALES_FILE_PATH):
-                return pd.read_csv(SALES_FILE_PATH)
+                df_local = pd.read_csv(SALES_FILE_PATH)
+                return clean_dataframe_types(df_local)
             return pd.DataFrame(columns=["년도", "월", "기관코드", "기관", "매출금액"])
 
 @st.cache_data(ttl=60)
 def load_persistent_db():
-    """Google Sheets에서 계정, 기관 및 목표 매출 DB를 불러옵니다. (로딩 메시지 커스텀)"""
+    """Google Sheets에서 계정, 기관 및 목표 매출 DB를 불러옵니다."""
     users = {}
     orgs = DEFAULT_ORGS.copy()
     targets = {}
@@ -46,8 +68,8 @@ def load_persistent_db():
                 if df_targets is not None and not df_targets.empty:
                     for _, row in df_targets.iterrows():
                         code = str(row["org_code"]).strip().replace(".0", "")
-                        year = int(row["year"])
-                        amt = int(row["target_amount"])
+                        year = int(float(row["year"]))
+                        amt = int(float(row["target_amount"]))
                         targets[(code, year)] = amt
             except Exception:
                 pass
@@ -79,7 +101,7 @@ def load_persistent_db():
 
     if "admin" not in users:
         users["admin"] = {
-            "password": "1234",
+            "password": "adminpassword",
             "role": "super_admin",
             "org_code": "ALL",
             "org_name": "전체(총 관리자)",
@@ -90,6 +112,7 @@ def load_persistent_db():
 def save_sales_data(df):
     """매출 데이터를 백업용 로컬 CSV 저장과 동시에 Google Sheets 'sales' 워크시트에 업데이트합니다."""
     if df is not None:
+        df = clean_dataframe_types(df)
         df.to_csv(SALES_FILE_PATH, index=False, encoding="utf-8-sig")
         try:
             with st.spinner("Running..."):
@@ -105,7 +128,7 @@ def save_targets_data():
     targets_db = st.session_state.get("targets_db", {})
     data = []
     for (code, year), amt in targets_db.items():
-        data.append({"org_code": code, "year": year, "target_amount": amt})
+        data.append({"org_code": code, "year": int(year), "target_amount": int(amt)})
     
     df_targets = pd.DataFrame(data)
     try:
@@ -588,7 +611,7 @@ def admin_target_page():
                 cleaned_num = "".join(filter(str.isdigit, val_str))
                 final_amount = int(cleaned_num) if cleaned_num else 0
 
-                st.session_state["targets_db"][(code, selected_fy)] = final_amount
+                st.session_state["targets_db"][(code, int(selected_fy))] = final_amount
                 
                 save_targets_data()
                 
@@ -602,7 +625,7 @@ def admin_target_page():
     summary_data = []
     for code in org_codes:
         org_name = orgs_db[code]["org_name"]
-        amt = st.session_state["targets_db"].get((code, selected_fy), 0)
+        amt = st.session_state["targets_db"].get((code, int(selected_fy)), 0)
         summary_data.append({
             "기관코드": code,
             "기관명": org_name,
@@ -656,10 +679,11 @@ def admin_upload_page():
                             f"필수 컬럼(년도, 월, 매출금액 및 기관코드/기관명)이 엑셀에 포함되어 있어야 합니다."
                         )
                     else:
+                        new_df = clean_dataframe_types(new_df)
                         orgs_db = st.session_state["orgs_db"]
                         
                         if "기관코드" in new_df.columns:
-                            new_df["기관코드"] = new_df["기관코드"].astype(str).str.strip()
+                            new_df["기관코드"] = new_df["기관코드"].astype(str).str.strip().str.replace(r"\.0$", "", regex=True)
                             new_df["기관"] = new_df["기관코드"].apply(
                                 lambda code: orgs_db.get(code, {}).get("org_name", f"미등록지사({code})")
                             )
@@ -695,6 +719,7 @@ def admin_upload_page():
                                 .sum()
                             )
 
+                        merged_df = clean_dataframe_types(merged_df)
                         st.session_state["df_accumulated"] = merged_df
                         save_sales_data(merged_df)
                         
@@ -708,10 +733,11 @@ def admin_upload_page():
         df_acc = st.session_state["df_accumulated"]
 
         if df_acc is not None and not df_acc.empty:
+            df_acc = clean_dataframe_types(df_acc)
             df_acc_calc = df_acc.copy()
             df_acc_calc["period_key"] = df_acc_calc["년도"] * 100 + df_acc_calc["월"]
 
-            all_years = sorted(list(df_acc["년도"].unique()))
+            all_years = sorted([int(y) for y in df_acc["년도"].unique()])
             all_months = list(range(1, 13))
             all_orgs = ["전체"] + sorted(list(df_acc["기관"].unique()))
 
@@ -729,8 +755,8 @@ def admin_upload_page():
 
             selected_dl_org = st.selectbox("기관 선택", all_orgs, index=0, key="dl_org_select")
 
-            start_key = start_year * 100 + start_month
-            end_key = end_year * 100 + end_month
+            start_key = int(start_year) * 100 + int(start_month)
+            end_key = int(end_year) * 100 + int(end_month)
 
             if start_key > end_key:
                 st.error("시작 기간이 종료 기간보다 이후일 수 없습니다.")
@@ -773,11 +799,12 @@ def admin_upload_page():
             df_acc = st.session_state["df_accumulated"]
 
             if df_acc is not None and not df_acc.empty:
+                df_acc = clean_dataframe_types(df_acc)
                 st.write(f"현재 총 **{len(df_acc):,} 건**의 데이터가 보관 중입니다.")
                 df_acc_calc = df_acc.copy()
                 df_acc_calc["period_key"] = df_acc_calc["년도"] * 100 + df_acc_calc["월"]
 
-                all_years = sorted(list(df_acc["년도"].unique()))
+                all_years = sorted([int(y) for y in df_acc["년도"].unique()])
                 all_months = list(range(1, 13))
 
                 col_s1, col_s2, col_e1, col_e2 = st.columns(4)
@@ -790,8 +817,8 @@ def admin_upload_page():
                 with col_e2:
                     end_month = st.selectbox("종료 월", all_months, index=11)
 
-                start_key = start_year * 100 + start_month
-                end_key = end_year * 100 + end_month
+                start_key = int(start_year) * 100 + int(start_month)
+                end_key = int(end_year) * 100 + int(end_month)
 
                 if start_key > end_key:
                     st.error("시작 기간이 종료 기간보다 이후일 수 없습니다.")
@@ -910,9 +937,11 @@ def main_dashboard():
         st.info("등록된 매출 데이터가 없습니다. 관리자에게 문의해 주세요.")
         return
 
-    df_raw = df_raw.copy()
+    # 정수 타입 강제 적용
+    df_raw = clean_dataframe_types(df_raw)
+    
     df_raw["회계연도"] = df_raw.apply(
-        lambda row: row["년도"] + 1 if row["월"] == 12 else row["년도"], axis=1
+        lambda row: int(row["년도"]) + 1 if int(row["월"]) == 12 else int(row["년도"]), axis=1
     )
 
     render_dashboard_content(df_raw, user)
@@ -949,12 +978,12 @@ def render_dashboard_content(df_raw, user):
 
     st.markdown("---")
 
-    latest_fiscal_year = filtered_df["회계연도"].max()
+    latest_fiscal_year = int(filtered_df["회계연도"].max())
     prev_fiscal_year = latest_fiscal_year - 1
 
     latest_rows = filtered_df[filtered_df["회계연도"] == latest_fiscal_year]
-    latest_year = latest_rows["년도"].max()
-    latest_month = latest_rows[latest_rows["년도"] == latest_year]["월"].max()
+    latest_year = int(latest_rows["년도"].max())
+    latest_month = int(latest_rows[latest_rows["년도"] == latest_year]["월"].max())
 
     curr_sales = filtered_df[(filtered_df["년도"] == latest_year) & (filtered_df["월"] == latest_month)]["매출금액"].sum()
     prev_sales = filtered_df[(filtered_df["년도"] == latest_year - 1) & (filtered_df["월"] == latest_month)]["매출금액"].sum()
@@ -966,7 +995,7 @@ def render_dashboard_content(df_raw, user):
     prev_fy_cum_sales = filtered_df[filtered_df["회계연도"] == prev_fiscal_year]["매출금액"].sum()
 
     if user["role"] in ["super_admin", "hq_admin"] and selected_org == "전체":
-        target_sales = sum([v for k, v in st.session_state["targets_db"].items() if k[1] == latest_fiscal_year])
+        target_sales = sum([v for k, v in st.session_state["targets_db"].items() if int(k[1]) == latest_fiscal_year])
     else:
         target_code = user.get("org_code")
         if user["role"] in ["super_admin", "hq_admin"] and selected_org != "전체":
@@ -1040,7 +1069,7 @@ def render_dashboard_content(df_raw, user):
     grouped = chart_df.groupby(["회계연도", "년도", "월", "월_순서", "월_라벨"], as_index=False)["매출금액"].sum()
     grouped = grouped.sort_values(by=["회계연도", "월_순서"])
 
-    available_fys = sorted(list(grouped["회계연도"].unique()), reverse=True)
+    available_fys = sorted([int(fy) for fy in grouped["회계연도"].unique()], reverse=True)
     comparison_pairs = []
     for i in range(len(available_fys) - 1):
         curr_fy = available_fys[i]
@@ -1064,14 +1093,14 @@ def render_dashboard_content(df_raw, user):
                     diff = row["매출금액"] - p_val
                     rate = (diff / p_val * 100) if p_val > 0 else 0
                     rate_sign = "+" if rate >= 0 else ""
-                    txt = f"{row['년도']}년 {row['월']}월: {row['매출금액']:,.0f}원 (전년 동월 대비 {diff:+,.0f}원, {rate_sign}{rate:.1f}%)"
+                    txt = f"{int(row['년도'])}년 {int(row['월'])}월: {row['매출금액']:,.0f}원 (전년 동월 대비 {diff:+,.0f}원, {rate_sign}{rate:.1f}%)"
                 else:
-                    txt = f"{row['년도']}년 {row['월']}월: {row['매출금액']:,.0f}원"
+                    txt = f"{int(row['년도'])}년 {int(row['월'])}월: {row['매출금액']:,.0f}원"
             else:
-                txt = f"{row['년도']}년 {row['월']}월: {row['매출금액']:,.0f}원"
+                txt = f"{int(row['년도'])}년 {int(row['월'])}월: {row['매출금액']:,.0f}원"
             sub_grouped.at[index, "tooltip_text"] = txt
 
-        sub_grouped["회계연도_라벨"] = sub_grouped["회계연도"].astype(str) + "년도"
+        sub_grouped["회계연도_라벨"] = sub_grouped["회계연도"].astype(int).astype(str) + "년도"
         curr_label = f"{target_curr_fy}년도"
         prev_label = f"{target_prev_fy}년도"
 
@@ -1105,7 +1134,7 @@ def render_dashboard_content(df_raw, user):
     st.markdown("---")
     st.subheader("🔍 상세 데이터 테이블")
 
-    all_fy_list = sorted(list(df_raw["회계연도"].unique()), reverse=True)
+    all_fy_list = sorted([int(fy) for fy in df_raw["회계연도"].unique()], reverse=True)
 
     if user["role"] in ["super_admin", "hq_admin"] and selected_org == "전체":
         selected_rank_fy = st.selectbox("📅 기준 연도", all_fy_list, index=0, key="rank_table_base_fy")
@@ -1190,12 +1219,9 @@ def render_dashboard_content(df_raw, user):
 
         st.markdown("---")
         
-        # ---------------------------------------------------------
-        # [신규 추가] 전체 선택 시 회계 연도별 전체 매출 6개년 추이 & 표
-        # ---------------------------------------------------------
         st.subheader("🌐 회계 연도별 전체 매출")
         selected_all_base_fy = st.selectbox("📅 기준 연도 선택", all_fy_list, index=0, key="all_6y_base_fy")
-        render_6year_analysis(df_raw, "전체 지사 총합", selected_all_base_fy)
+        render_6year_analysis(df_raw, "전체 지사 총합", int(selected_all_base_fy))
 
         st.markdown("---")
         st.subheader("🏢 연도별 각 지사 매출")
@@ -1223,7 +1249,7 @@ def render_dashboard_content(df_raw, user):
 
             if target_detail_org and target_detail_org in unique_org_list:
                 st.markdown("<br>", unsafe_allow_html=True)
-                render_6year_analysis(df_raw, target_detail_org, selected_base_fy)
+                render_6year_analysis(df_raw, target_detail_org, int(selected_base_fy))
 
     else:
         current_org_title = selected_org if selected_org != "전체" else user["org_name"]
@@ -1241,7 +1267,7 @@ def render_dashboard_content(df_raw, user):
         cum_prev = 0
 
         for _, row in curr_org_df.iterrows():
-            m = row["월"]
+            m = int(row["월"])
             c_val = row["매출금액"]
             cum_curr += c_val
 
@@ -1266,8 +1292,8 @@ def render_dashboard_content(df_raw, user):
                 return "0.0%"
 
             results.append({
-                "년도": row["년도"],
-                "월": row["월"],
+                "년도": int(row["년도"]),
+                "월": int(row["월"]),
                 "당월 매출": f"{c_val:,.0f} 원",
                 "전년 동월 대비 증감액": fmt_diff_str(m_diff),
                 "전년 동월 대비 증감율": fmt_rate_str(m_rate),
@@ -1317,15 +1343,15 @@ def render_dashboard_content(df_raw, user):
         styled_indiv_df = display_indiv_df.style.apply(style_indiv_table, axis=1)
 
         indiv_config = {
-            "년도": st.column_config.NumberColumn("년도", width=65, alignment="center"),
-            "월": st.column_config.NumberColumn("월", width=45, alignment="center"),
+            "년도": st.column_config.NumberColumn("년도", width=65, alignment="center", format="%d"),
+            "월": st.column_config.NumberColumn("월", width=45, alignment="center", format="%d"),
             "당월 매출": st.column_config.TextColumn("당월 매출", width=120, alignment="right"),
             "전년 동월 대비 증감액": st.column_config.TextColumn("전년 동월 대비 증감액", width=150, alignment="right"),
             "전년 동월 대비 증감율": st.column_config.TextColumn("전년 동월 대비 증감율", width=120, alignment="right"),
             "전년 동월 매출": st.column_config.TextColumn("전년 동월 매출", width=120, alignment="right"),
             "당해 누적 매출": st.column_config.TextColumn("당해 누적 매출", width=130, alignment="right"),
             "전년 동기 누적 대비 증감액": st.column_config.TextColumn("전년 동기 누적 대비 증감액", width=160, alignment="right"),
-            "전년 동기 누적 대비 증감율": st.column_config.TextColumn("전년 동기 누적 대비 증감율", width=120, alignment="right"),
+            "전년 동기 누적 대비 증감율": st.column_config.TextColumn("전년 동기 대비 증감율", width=120, alignment="right"),
             "전년 동기 누적": st.column_config.TextColumn("전년 동기 누적", width=130, alignment="right"),
             "m_diff": None,
             "cum_diff": None,
@@ -1336,13 +1362,14 @@ def render_dashboard_content(df_raw, user):
         st.markdown("---")
         st.subheader("📅 최근 6개년 연도별 매출 추이")
         selected_user_base_fy = st.selectbox("📅 기준 연도 선택", all_fy_list, index=0, key="user_6y_base_fy")
-        render_6year_analysis(filtered_df, current_org_title, selected_user_base_fy)
+        render_6year_analysis(filtered_df, current_org_title, int(selected_user_base_fy))
 
 
 # -----------------------------------------------------------------------------
 # 10. 공통 최근 6개년 매출 분석 렌더링 함수
 # -----------------------------------------------------------------------------
 def render_6year_analysis(df_target_source, org_title, base_fy):
+    base_fy = int(base_fy)
     six_years = list(range(base_fy - 5, base_fy + 1))
     st.info(f"📊 **[{org_title}] {six_years[0]}년 ~ {six_years[-1]}년 (6개년) 연도별 매출 상세 분석**")
 
@@ -1353,6 +1380,7 @@ def render_6year_analysis(df_target_source, org_title, base_fy):
         org_6y_df = org_6y_df[org_6y_df["회계연도"].isin(six_years)]
     
     summary_6y = org_6y_df.groupby("회계연도", as_index=False)["매출금액"].sum()
+    summary_6y["회계연도"] = summary_6y["회계연도"].astype(int)
     summary_6y = pd.merge(pd.DataFrame({"회계연도": six_years}), summary_6y, on="회계연도", how="left").fillna({"매출금액": 0}).sort_values(by="회계연도").reset_index(drop=True)
 
     if not summary_6y.empty:
@@ -1364,8 +1392,8 @@ def render_6year_analysis(df_target_source, org_title, base_fy):
             return ((row["매출금액"] - row["전년매출"]) / row["전년매출"]) * 100
 
         summary_6y["증감율_num"] = summary_6y.apply(calc_yoy_rate, axis=1)
-        summary_6y["회계연도_라벨"] = summary_6y["회계연도"].astype(str) + "년도"
-        summary_6y["tooltip"] = [f"<b>{row['회계연도']}년</b>: {row['매출금액']:,.0f}원" for _, row in summary_6y.iterrows()]
+        summary_6y["회계연도_라벨"] = summary_6y["회계연도"].astype(int).astype(str) + "년도"
+        summary_6y["tooltip"] = [f"<b>{int(row['회계연도'])}년</b>: {row['매출금액']:,.0f}원" for _, row in summary_6y.iterrows()]
 
         fig_6y = px.line(summary_6y, x="회계연도_라벨", y="매출금액", markers=True, title=f"[{org_title}] 최근 6개년 ({six_years[0]}~{six_years[-1]}년) 매출 추이", custom_data=["tooltip"])
         fig_6y.update_traces(line=dict(color="#1976D2", width=3), marker=dict(size=9, color="#0D47A1"), hovertemplate="%{customdata[0]}<extra></extra>")
@@ -1382,7 +1410,7 @@ def render_6year_analysis(df_target_source, org_title, base_fy):
         st.plotly_chart(fig_6y, use_container_width=True)
 
         table_6y = summary_6y.sort_values(by="회계연도", ascending=False).copy()
-        table_6y["구분"] = table_6y["회계연도"].astype(str) + " 회계연도"
+        table_6y["구분"] = table_6y["회계연도"].astype(int).astype(str) + " 회계연도"
         table_6y["매출금액(원)"] = table_6y["매출금액"].apply(lambda x: f"{x:,.0f} 원")
 
         def fmt_diff_6y(val, rate):
