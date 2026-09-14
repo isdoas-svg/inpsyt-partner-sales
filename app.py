@@ -52,6 +52,25 @@ def load_sales_data():
             return pd.DataFrame(columns=["년도", "월", "기관코드", "기관", "매출금액"])
 
 @st.cache_data(ttl=60)
+def load_branch_info_data():
+    """Google Sheets의 branch_info 워크시트에서 지사별 학교 수 및 학령인구 정보를 불러옵니다."""
+    with st.spinner("Running..."):
+        try:
+            sheet_url = st.secrets["connections"]["gsheets"].get("spreadsheet")
+            df_info = conn.read(spreadsheet=sheet_url, worksheet="branch_info", ttl=60) if sheet_url else conn.read(worksheet="branch_info", ttl=60)
+            if df_info is not None and not df_info.empty:
+                df_info = df_info.fillna(0)
+                if "기관코드" in df_info.columns:
+                    df_info["기관코드"] = df_info["기관코드"].astype(str).str.strip().str.replace(r"\.0$", "", regex=True)
+                for col in ["총관리학교수", "초등학교수", "중학교수", "고등학교수", "학령인구"]:
+                    if col in df_info.columns:
+                        df_info[col] = pd.to_numeric(df_info[col], errors="coerce").fillna(0).astype(int)
+                return df_info
+            return pd.DataFrame()
+        except Exception as e:
+            return pd.DataFrame()
+
+@st.cache_data(ttl=60)
 def load_persistent_db():
     """Google Sheets에서 계정, 기관 및 목표 매출 DB를 불러옵니다."""
     users = {}
@@ -1448,8 +1467,74 @@ def render_6year_analysis(df_target_source, org_title, base_fy):
         }
 
         st.dataframe(styled_6y_df, column_config=config_6y, hide_index=True, use_container_width=False)
+        
+        # 회계연도별 매출 표 하단에 관리 학교 및 학령인구 생산성 지표 표 배치
+        render_branch_metrics_analysis(org_title, summary_6y)
     else:
         st.warning("해당 기간의 매출 데이터가 존재하지 않습니다.")
+
+
+def render_branch_metrics_analysis(org_title, summary_6y_df):
+    """회계연도별 매출 표 하단에 지사별 관리 학교 수 및 학령인구 지표 표를 배치합니다."""
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.caption("🏫 **지사 관리 학교 수 및 학령인구 기반 매출 분석 지표**")
+    
+    df_branch_info = load_branch_info_data()
+    
+    if df_branch_info.empty:
+        st.info("💡 Google Sheets에 `branch_info` 워크시트를 추가하시면 학교 수 및 학령인구 연산 지표가 표 하단에 구동됩니다.")
+        return
+
+    orgs_db = st.session_state.get("orgs_db", {})
+    
+    if org_title == "전체 지사 총합":
+        target_info = df_branch_info
+    else:
+        matched_codes = [code for code, info in orgs_db.items() if info.get("org_name") == org_title]
+        if "기관" in df_branch_info.columns:
+            target_info = df_branch_info[(df_branch_info["기관"] == org_title) | (df_branch_info["기관코드"].isin(matched_codes))]
+        elif "기관코드" in df_branch_info.columns:
+            target_info = df_branch_info[df_branch_info["기관코드"].isin(matched_codes)]
+        else:
+            target_info = pd.DataFrame()
+
+    if target_info.empty:
+        st.caption("※ 해당 기관의 지사 관리 정보(branch_info) 데이터가 등록되어 있지 않습니다.")
+        return
+
+    total_schools = int(target_info["총관리학교수"].sum()) if "총관리학교수" in target_info.columns else 0
+    elem_schools = int(target_info["초등학교수"].sum()) if "초등학교수" in target_info.columns else 0
+    mid_schools = int(target_info["중학교수"].sum()) if "중학교수" in target_info.columns else 0
+    high_schools = int(target_info["고등학교수"].sum()) if "고등학교수" in target_info.columns else 0
+    pop_student = int(target_info["학령인구"].sum()) if "학령인구" in target_info.columns else 0
+
+    elem_ratio = (elem_schools / total_schools * 100) if total_schools > 0 else 0
+    mid_ratio = (mid_schools / total_schools * 100) if total_schools > 0 else 0
+    high_ratio = (high_schools / total_schools * 100) if total_schools > 0 else 0
+
+    metrics_rows = []
+    
+    latest_row = summary_6y_df.sort_values(by="회계연도", ascending=False).iloc[0] if not summary_6y_df.empty else None
+    
+    if latest_row is not None:
+        fy_year = int(latest_row["회계연도"])
+        sales_amt = float(latest_row["매출금액"])
+        
+        arpu_school = sales_amt / total_schools if total_schools > 0 else 0
+        arpu_student = sales_amt / pop_student if pop_student > 0 else 0
+
+        metrics_rows.append({
+            "구분": f"{fy_year} 회계연도 기준 분석 지표",
+            "총 관리 학교 수": f"{total_schools:,} 개교",
+            "학교 구성 비율": f"초 {elem_schools}개({elem_ratio:.1f}%) | 중 {mid_schools}개({mid_ratio:.1f}%) | 고 {high_schools}개({high_ratio:.1f}%)",
+            "지역 학령인구": f"{pop_student:,} 명",
+            "학교당 평균 매출(원)": f"{arpu_school:,.0f} 원",
+            "학령인구 1인당 매출(원)": f"{arpu_student:,.1f} 원"
+        })
+
+    if metrics_rows:
+        metrics_df = pd.DataFrame(metrics_rows)
+        st.dataframe(metrics_df, hide_index=True, use_container_width=True)
 
 
 if __name__ == "__main__":
