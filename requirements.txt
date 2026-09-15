@@ -5,4 +5,4 @@ plotly
 openpyxl
 st-gsheets-connection
 streamlit-cookies-controller
-extra-streamlit-components
+extra_streamlit_components
