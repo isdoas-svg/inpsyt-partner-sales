@@ -23,7 +23,6 @@ def clean_dataframe_types(df):
     
     df = df.copy()
     
-    # 소수점문자열 또는 float 타입을 정수형으로 변환
     if "년도" in df.columns:
         df["년도"] = pd.to_numeric(df["년도"], errors="coerce").fillna(0).astype(int)
     if "월" in df.columns:
@@ -33,7 +32,6 @@ def clean_dataframe_types(df):
     if "기관코드" in df.columns:
         df["기관코드"] = df["기관코드"].astype(str).str.strip().str.replace(r"\.0$", "", regex=True)
         
-    # 빈 값 또는 0년도 데이터 제거
     df = df[(df["년도"] > 0) & (df["월"] > 0)].reset_index(drop=True)
     return df
 
@@ -62,7 +60,9 @@ def load_branch_info_data():
                 df_info = df_info.fillna(0)
                 if "기관코드" in df_info.columns:
                     df_info["기관코드"] = df_info["기관코드"].astype(str).str.strip().str.replace(r"\.0$", "", regex=True)
-                for col in ["총관리학교수", "초등학교수", "중학교수", "고등학교수", "학령인구", "초등학령인구", "중등학령인구", "고등학령인구"]:
+                
+                num_cols = ["총관리학교수", "초등학교수", "중학교수", "고등학교수", "학령인구", "초등학령인구", "중등학령인구", "고등학령인구", "학교수", "초등학생수", "중고등학생수"]
+                for col in num_cols:
                     if col in df_info.columns:
                         df_info[col] = pd.to_numeric(df_info[col], errors="coerce").fillna(0).astype(int)
                 return df_info
@@ -956,7 +956,6 @@ def main_dashboard():
         st.info("등록된 매출 데이터가 없습니다. 관리자에게 문의해 주세요.")
         return
 
-    # 정수 타입 강제 적용
     df_raw = clean_dataframe_types(df_raw)
     
     df_raw["회계연도"] = df_raw.apply(
@@ -1482,7 +1481,7 @@ def render_branch_metrics_analysis(org_title):
     df_branch_info = load_branch_info_data()
     
     if df_branch_info.empty:
-        st.info("💡 Google Sheets에 `branch_info` 워크시트를 추가하시면 관련 지표가 표 하단에 구동됩니다.")
+        st.info("💡 Google Sheets에 `branch_info` 워크시트를 추가하시면 관련 지표가 표 하단에 자동 정형화되어 출력됩니다.")
         return
 
     orgs_db = st.session_state.get("orgs_db", {})
@@ -1502,39 +1501,50 @@ def render_branch_metrics_analysis(org_title):
         st.caption("※ 해당 기관의 지사 관리 정보(branch_info) 데이터가 등록되어 있지 않습니다.")
         return
 
-    total_schools = int(target_info["총관리학교수"].sum()) if "총관리학교수" in target_info.columns else 0
+    # 컬럼 매칭 보완 처리
     elem_schools = int(target_info["초등학교수"].sum()) if "초등학교수" in target_info.columns else 0
     mid_schools = int(target_info["중학교수"].sum()) if "중학교수" in target_info.columns else 0
     high_schools = int(target_info["고등학교수"].sum()) if "고등학교수" in target_info.columns else 0
 
-    elem_pop = int(target_info["초등학령인구"].sum()) if "초등학령인구" in target_info.columns else 0
-    mid_pop = int(target_info["중등학령인구"].sum()) if "중등학령인구" in target_info.columns else 0
+    if "총관리학교수" in target_info.columns:
+        total_schools = int(target_info["총관리학교수"].sum())
+    elif "학교수" in target_info.columns:
+        total_schools = int(target_info["학교수"].sum())
+    else:
+        total_schools = elem_schools + mid_schools + high_schools
+
+    elem_pop = int(target_info["초등학령인구"].sum()) if "초등학령인구" in target_info.columns else (
+        int(target_info["초등학생수"].sum()) if "초등학생수" in target_info.columns else 0
+    )
+    mid_pop = int(target_info["중등학령인구"].sum()) if "중등학령인구" in target_info.columns else (
+        int(target_info["중고등학생수"].sum()) if "중고등학생수" in target_info.columns else 0
+    )
     high_pop = int(target_info["고등학령인구"].sum()) if "고등학령인구" in target_info.columns else 0
 
     if elem_pop == 0 and mid_pop == 0 and high_pop == 0 and "학령인구" in target_info.columns:
         total_pop = int(target_info["학령인구"].sum())
         elem_pop = total_pop
-        mid_pop = 0
-        high_pop = 0
+    else:
+        total_pop = elem_pop + mid_pop + high_pop
 
-    total_pop = elem_pop + mid_pop + high_pop
-
+    # 목표 금액 산출 (초등: 인구*2500*0.2 / 중고등: 인구*1500*0.2)
     elem_target_amt = elem_pop * 2500 * 0.2
     mid_target_amt = mid_pop * 1500 * 0.2
     high_target_amt = high_pop * 1500 * 0.2
+    total_target_calc_amt = elem_target_amt + mid_target_amt + high_target_amt
 
     metrics_df = pd.DataFrame([{
+        "구분": org_title,
         "총 관리 학교 수": f"{total_schools:,} 개교",
         "초등학교 수": f"{elem_schools:,} 개교",
         "중학교 수": f"{mid_schools:,} 개교",
         "고등학교 수": f"{high_schools:,} 개교",
         "총 학령인구": f"{total_pop:,} 명",
         "초등 학령인구": f"{elem_pop:,} 명",
-        "중등 학령인구": f"{mid_pop:,} 명",
-        "고등 학령인구": f"{high_pop:,} 명",
-        "초등 목표 산출금액 (초등인구×2,500원×20%)": f"{elem_target_amt:,.0f} 원",
-        "중등 목표 산출금액 (중등인구×1,500원×20%)": f"{mid_target_amt:,.0f} 원",
-        "고등 목표 산출금액 (고등인구×1,500원×20%)": f"{high_target_amt:,.0f} 원",
+        "중/고등 학령인구": f"{(mid_pop + high_pop):,} 명",
+        "산출 목표 총액": f"{total_target_calc_amt:,.0f} 원",
+        "초등 목표 산출액": f"{elem_target_amt:,.0f} 원",
+        "중/고등 목표 산출액": f"{(mid_target_amt + high_target_amt):,.0f} 원",
     }])
 
     st.dataframe(metrics_df, hide_index=True, use_container_width=True)
