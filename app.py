@@ -1531,10 +1531,10 @@ def render_branch_metrics_analysis(org_title):
         "초등 학령인구": f"{elem_pop:,} 명",
         "중등 학령인구": f"{mid_pop:,} 명",
         "고등 학령인구": f"{high_pop:,} 명",
-        "산출 목표 총액": f"{total_target_calc_amt:,.0f} 원",
-        "초등 목표 산출액": f"{elem_target_amt:,.0f} 원",
-        "중등 목표 산출액": f"{mid_target_amt:,.0f} 원",
-        "고등 목표 산출액": f"{high_target_amt:,.0f} 원",
+        "기대 매출 총액": f"{total_target_calc_amt:,.0f} 원",
+        "초등 기대 매출": f"{elem_target_amt:,.0f} 원",
+        "중등 기대 매출": f"{mid_target_amt:,.0f} 원",
+        "고등 기대 매출": f"{high_target_amt:,.0f} 원",
     }])
 
     st.dataframe(metrics_df, hide_index=True, use_container_width=True)
