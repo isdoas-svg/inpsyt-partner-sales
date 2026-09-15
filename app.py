@@ -261,7 +261,7 @@ if "df_accumulated" not in st.session_state:
     st.session_state["df_accumulated"] = load_sales_data()
 
 # --- 새로고침 시 브라우저 쿠키를 읽어 자동 로그인 상태 복원 ---
-saved_username = cookie_manager.get(cookie="auth_username")
+saved_username = st.context.cookies.get("auth_username")
 if saved_username and not st.session_state["logged_in"]:
     user_db = st.session_state["user_db"]
     orgs_db = st.session_state["orgs_db"]
