@@ -1,8 +1,6 @@
-streamlit
+streamlit>=1.37.0
 pandas
 numpy
 plotly
 openpyxl
 st-gsheets-connection
-streamlit-cookies-controller
-extra_streamlit_components

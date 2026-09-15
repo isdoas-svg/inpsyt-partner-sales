@@ -4,7 +4,6 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import streamlit as st
-import extra_streamlit_components as stx
 from streamlit_gsheets import GSheetsConnection
 
 # ==========================================
@@ -230,7 +229,7 @@ st.set_page_config(
 )
 
 # --- 쿠키 매니저 초기화 (로그인 유지용) ---
-cookie_manager = stx.CookieManager(key="inpsyt_cookie_manager")
+saved_username = st.context.cookies.get("username") # 또는 "user_id", "auth_token" 등 사용 중인 Key
 
 st.markdown(
     """
