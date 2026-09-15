@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import streamlit as st
+import extra_streamlit_components as stx
 from streamlit_gsheets import GSheetsConnection
 
 # ==========================================
@@ -228,6 +229,13 @@ st.set_page_config(
     page_title="인싸이트 지사 매출 확인", page_icon="📊", layout="wide"
 )
 
+# --- 쿠키 매니저 초기화 (로그인 유지용) ---
+@st.cache_resource
+def get_cookie_manager():
+    return stx.get_cookie_manager()
+
+cookie_manager = get_cookie_manager()
+
 st.markdown(
     """
     <style>
@@ -256,6 +264,31 @@ if "selected_detail_org" not in st.session_state:
 
 if "df_accumulated" not in st.session_state:
     st.session_state["df_accumulated"] = load_sales_data()
+
+# --- 새로고침 시 브라우저 쿠키를 읽어 자동 로그인 상태 복원 ---
+saved_username = cookie_manager.get(cookie="auth_username")
+if saved_username and not st.session_state["logged_in"]:
+    user_db = st.session_state["user_db"]
+    orgs_db = st.session_state["orgs_db"]
+    if saved_username in user_db:
+        u_info = user_db[saved_username]
+        role = u_info.get("role", "user")
+        org_code = u_info.get("org_code", "ALL")
+
+        if role == "super_admin":
+            current_org_name = "전체(총 관리자)"
+        elif role == "hq_admin":
+            current_org_name = "전체(본사 관리자)"
+        else:
+            current_org_name = orgs_db.get(org_code, {}).get("org_name", "미지정 기관")
+
+        st.session_state["logged_in"] = True
+        st.session_state["user_info"] = {
+            "username": saved_username,
+            "role": role,
+            "org_code": org_code,
+            "org_name": current_org_name,
+        }
 
 
 # -----------------------------------------------------------------------------
@@ -296,6 +329,10 @@ def login_screen():
                     "org_code": org_code,
                     "org_name": current_org_name,
                 }
+                
+                # --- 로그인 성공 시 브라우저 쿠키에 로그인 정보 저장 (유효기간 1일) ---
+                cookie_manager.set("auth_username", username, key="set_cookie_user", max_age=86400)
+                
                 st.success("로그인 성공!")
                 st.rerun()
             else:
@@ -427,6 +464,7 @@ def admin_account_page():
 
                             if st.session_state["user_info"]["username"] == selected_user:
                                 st.session_state["user_info"]["username"] = new_id_clean
+                                cookie_manager.set("auth_username", new_id_clean, key="update_cookie_user", max_age=86400)
 
                             st.success(f"계정 정보가 성공적으로 변경되었습니다. (ID: **{new_id_clean}**)")
                             st.rerun()
@@ -906,6 +944,8 @@ def main_dashboard():
         if st.button("로그아웃", use_container_width=True):
             st.session_state["logged_in"] = False
             st.session_state["user_info"] = None
+            # --- 로그아웃 시 브라우저 쿠키 삭제 ---
+            cookie_manager.delete("auth_username", key="delete_cookie_user")
             st.rerun()
 
         st.markdown("<br><hr><br>", unsafe_allow_html=True)
