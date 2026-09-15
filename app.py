@@ -62,7 +62,7 @@ def load_branch_info_data():
                 df_info = df_info.fillna(0)
                 if "기관코드" in df_info.columns:
                     df_info["기관코드"] = df_info["기관코드"].astype(str).str.strip().str.replace(r"\.0$", "", regex=True)
-                for col in ["총관리학교수", "초등학교수", "중학교수", "고등학교수", "학령인구"]:
+                for col in ["총관리학교수", "초등학교수", "중학교수", "고등학교수", "학령인구", "초등학령인구", "중등학령인구", "고등학령인구"]:
                     if col in df_info.columns:
                         df_info[col] = pd.to_numeric(df_info[col], errors="coerce").fillna(0).astype(int)
                 return df_info
@@ -1370,7 +1370,7 @@ def render_dashboard_content(df_raw, user):
             "전년 동월 매출": st.column_config.TextColumn("전년 동월 매출", width=120, alignment="right"),
             "당해 누적 매출": st.column_config.TextColumn("당해 누적 매출", width=130, alignment="right"),
             "전년 동기 누적 대비 증감액": st.column_config.TextColumn("전년 동기 누적 대비 증감액", width=160, alignment="right"),
-            "전년 동기 누적 대비 증감율": st.column_config.TextColumn("전년 동기 대비 증감율", width=120, alignment="right"),
+            "전년 동기 대비 증감율": st.column_config.TextColumn("전년 동기 대비 증감율", width=120, alignment="right"),
             "전년 동기 누적": st.column_config.TextColumn("전년 동기 누적", width=130, alignment="right"),
             "m_diff": None,
             "cum_diff": None,
@@ -1468,21 +1468,21 @@ def render_6year_analysis(df_target_source, org_title, base_fy):
 
         st.dataframe(styled_6y_df, column_config=config_6y, hide_index=True, use_container_width=False)
         
-        # 회계연도별 매출 표 하단에 관리 학교 및 학령인구 생산성 지표 표 배치
-        render_branch_metrics_analysis(org_title, summary_6y)
+        # 회계연도별 매출 표 하단에 관리 학교 수 및 학령인구 분석 표 배치
+        render_branch_metrics_analysis(org_title)
     else:
         st.warning("해당 기간의 매출 데이터가 존재하지 않습니다.")
 
 
-def render_branch_metrics_analysis(org_title, summary_6y_df):
-    """회계연도별 매출 표 하단에 지사별 관리 학교 수 및 학령인구 지표 표를 배치합니다."""
+def render_branch_metrics_analysis(org_title):
+    """회계연도별 매출 표 하단에 지사별 학교 수, 학령인구 분리 표 및 지정 목표 산출액을 표시합니다."""
     st.markdown("<br>", unsafe_allow_html=True)
-    st.caption("🏫 **지사 관리 학교 수 및 학령인구 기반 매출 분석 지표**")
+    st.caption("🏫 **지사 관리 학교 수 및 학령인구 기반 목표 산출 분석**")
     
     df_branch_info = load_branch_info_data()
     
     if df_branch_info.empty:
-        st.info("💡 Google Sheets에 `branch_info` 워크시트를 추가하시면 학교 수 및 학령인구 연산 지표가 표 하단에 구동됩니다.")
+        st.info("💡 Google Sheets에 `branch_info` 워크시트를 추가하시면 관련 지표가 표 하단에 구동됩니다.")
         return
 
     orgs_db = st.session_state.get("orgs_db", {})
@@ -1506,35 +1506,38 @@ def render_branch_metrics_analysis(org_title, summary_6y_df):
     elem_schools = int(target_info["초등학교수"].sum()) if "초등학교수" in target_info.columns else 0
     mid_schools = int(target_info["중학교수"].sum()) if "중학교수" in target_info.columns else 0
     high_schools = int(target_info["고등학교수"].sum()) if "고등학교수" in target_info.columns else 0
-    pop_student = int(target_info["학령인구"].sum()) if "학령인구" in target_info.columns else 0
 
-    elem_ratio = (elem_schools / total_schools * 100) if total_schools > 0 else 0
-    mid_ratio = (mid_schools / total_schools * 100) if total_schools > 0 else 0
-    high_ratio = (high_schools / total_schools * 100) if total_schools > 0 else 0
+    elem_pop = int(target_info["초등학령인구"].sum()) if "초등학령인구" in target_info.columns else 0
+    mid_pop = int(target_info["중등학령인구"].sum()) if "중등학령인구" in target_info.columns else 0
+    high_pop = int(target_info["고등학령인구"].sum()) if "고등학령인구" in target_info.columns else 0
 
-    metrics_rows = []
-    
-    latest_row = summary_6y_df.sort_values(by="회계연도", ascending=False).iloc[0] if not summary_6y_df.empty else None
-    
-    if latest_row is not None:
-        fy_year = int(latest_row["회계연도"])
-        sales_amt = float(latest_row["매출금액"])
-        
-        arpu_school = sales_amt / total_schools if total_schools > 0 else 0
-        arpu_student = sales_amt / pop_student if pop_student > 0 else 0
+    if elem_pop == 0 and mid_pop == 0 and high_pop == 0 and "학령인구" in target_info.columns:
+        total_pop = int(target_info["학령인구"].sum())
+        elem_pop = total_pop
+        mid_pop = 0
+        high_pop = 0
 
-        metrics_rows.append({
-            "구분": f"{fy_year} 회계연도 기준 분석 지표",
-            "총 관리 학교 수": f"{total_schools:,} 개교",
-            "학교 구성 비율": f"초 {elem_schools}개({elem_ratio:.1f}%) | 중 {mid_schools}개({mid_ratio:.1f}%) | 고 {high_schools}개({high_ratio:.1f}%)",
-            "지역 학령인구": f"{pop_student:,} 명",
-            "학교당 평균 매출(원)": f"{arpu_school:,.0f} 원",
-            "학령인구 1인당 매출(원)": f"{arpu_student:,.1f} 원"
-        })
+    total_pop = elem_pop + mid_pop + high_pop
 
-    if metrics_rows:
-        metrics_df = pd.DataFrame(metrics_rows)
-        st.dataframe(metrics_df, hide_index=True, use_container_width=True)
+    elem_target_amt = elem_pop * 2500 * 0.2
+    mid_target_amt = mid_pop * 1500 * 0.2
+    high_target_amt = high_pop * 1500 * 0.2
+
+    metrics_df = pd.DataFrame([{
+        "총 관리 학교 수": f"{total_schools:,} 개교",
+        "초등학교 수": f"{elem_schools:,} 개교",
+        "중학교 수": f"{mid_schools:,} 개교",
+        "고등학교 수": f"{high_schools:,} 개교",
+        "총 학령인구": f"{total_pop:,} 명",
+        "초등 학령인구": f"{elem_pop:,} 명",
+        "중등 학령인구": f"{mid_pop:,} 명",
+        "고등 학령인구": f"{high_pop:,} 명",
+        "초등 목표 산출금액 (초등인구×2,500원×20%)": f"{elem_target_amt:,.0f} 원",
+        "중등 목표 산출금액 (중등인구×1,500원×20%)": f"{mid_target_amt:,.0f} 원",
+        "고등 목표 산출금액 (고등인구×1,500원×20%)": f"{high_target_amt:,.0f} 원",
+    }])
+
+    st.dataframe(metrics_df, hide_index=True, use_container_width=True)
 
 
 if __name__ == "__main__":
