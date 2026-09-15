@@ -230,10 +230,7 @@ st.set_page_config(
 )
 
 # --- 쿠키 매니저 초기화 (로그인 유지용) ---
-def get_cookie_manager():
-    return stx.get_cookie_manager()
-
-cookie_manager = get_cookie_manager()
+cookie_manager = stx.CookieManager(key="inpsyt_cookie_manager")
 
 st.markdown(
     """
