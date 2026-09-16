@@ -933,8 +933,8 @@ def main_dashboard():
 
                 /* 각 메뉴 항목 내부 여백 */
                 div[data-testid="stRadio"] div[role="radiogroup"] label {
-                    padding-top: 10px !important;
-                    padding-bottom: 10px !important;
+                    padding-top: 5px !important;
+                    padding-bottom: 5px !important;
                 }
                 </style>
                 
