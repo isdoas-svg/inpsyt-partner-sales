@@ -920,7 +920,7 @@ def main_dashboard():
               <style>
                 /* 사이드바 내 서브헤더 및 텍스트 상단 여백 제거 */
                 section[data-testid="stSidebar"] [data-testid="stSubheader"] {
-                    margin-top: -35px !important; /* 더 붙이고 싶다면 -45px 등 음수를 늘려주세요 */
+                    margin-top: -50px !important; /* 더 붙이고 싶다면 -45px 등 음수를 늘려주세요 */
                     padding-top: 0px !important;
                 }
                 
