@@ -908,35 +908,37 @@ def main_dashboard():
             st.session_state["user_info"] = None
             st.rerun()
 
-        st.markdown("<br><hr><br>", unsafe_allow_html=True)
+        # 1. 위쪽 강제 여백 제거 (줄바꿈 태그 없이 <hr> 마진만 좁힘)
+        st.markdown("<hr style='margin-top: 5px; margin-bottom: 10px;'>", unsafe_allow_html=True)
 
         menu_selection = "📈 매출 분석 대시보드"
         
         if user["role"] in ["super_admin", "hq_admin"]:
-            st.subheader("⚙️ 관리자 메뉴")
+            # 2. st.subheader 대신 HTML 태그로 직접 제목 출력 (+ CSS 설정)
             st.markdown(
-               
-            """
-              <style>
-       /* 메뉴 타이틀 위아래 여백 직접 제어 */
+                """
+                <style>
+                /* 타이틀 마진 최소화 */
                 .admin-menu-title {
                     font-size: 1.1rem;
                     font-weight: 600;
-                    margin-top: -40px !important; /* 이 숫자로 구분선과의 간격을 조절하세요 (-25px, -30px 등) */
-                    margin-bottom: 10px !important;
+                    margin-top: 0px !important;
+                    margin-bottom: 8px !important;
                 }
 
-                /* 라디오 그룹 전체의 아이템 사이 간격(flex gap) 강제 부여 */
+                /* 라디오 그룹 아이템 사이 간격 */
                 div[data-testid="stRadio"] > div[role="radiogroup"] {
-                    gap: 15px !important; /* 원하시는 간격 수치(px)로 조절 가능 */
+                    gap: 15px !important;
                 }
 
-                /* 각 메뉴 항목 내부 여백 및 텍스트 크기 조절 */
+                /* 각 메뉴 항목 내부 여백 */
                 div[data-testid="stRadio"] div[role="radiogroup"] label {
                     padding-top: 10px !important;
                     padding-bottom: 10px !important;
                 }
                 </style>
+                
+                <div class="admin-menu-title">⚙️ 관리자 메뉴</div>
             """,
                 unsafe_allow_html=True,
             )
