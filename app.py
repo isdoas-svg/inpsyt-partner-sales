@@ -918,16 +918,12 @@ def main_dashboard():
                
             """
               <style>
-                /* 사이드바 내 서브헤더 및 텍스트 상단 여백 제거 */
-                section[data-testid="stSidebar"] [data-testid="stSubheader"] {
-                    margin-top: -50px !important; /* 더 붙이고 싶다면 -45px 등 음수를 늘려주세요 */
-                    padding-top: 0px !important;
-                }
-                
-                /* 서브헤더 자체 <h3> 태그의 기본 마진도 강제 축소 */
-                section[data-testid="stSidebar"] [data-testid="stSubheader"] h3 {
-                    margin-top: 0px !important;
-                    padding-top: 0px !important;
+       /* 메뉴 타이틀 위아래 여백 직접 제어 */
+                .admin-menu-title {
+                    font-size: 1.1rem;
+                    font-weight: 600;
+                    margin-top: -15px !important; /* 이 숫자로 구분선과의 간격을 조절하세요 (-25px, -30px 등) */
+                    margin-bottom: 10px !important;
                 }
 
                 /* 라디오 그룹 전체의 아이템 사이 간격(flex gap) 강제 부여 */
