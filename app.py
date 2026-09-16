@@ -920,7 +920,7 @@ def main_dashboard():
                 <style>
                 /* 1. '관리자 메뉴' 서브헤더 위쪽 간격 줄이기 */
                 div[data-testid="stSubheader"] {
-                    margin-top: -15px !important; /* 이 숫자를 더 음수(-20px 등)로 낮추면 선과 더 가까워집니다 */
+                    margin-top: -30px !important; /* 이 숫자를 더 음수(-20px 등)로 낮추면 선과 더 가까워집니다 */
                     padding-top: 0px !important;
                 }
 
