@@ -921,7 +921,7 @@ def main_dashboard():
                 div[data-testid="stRadio"] div[role="radiogroup"] > label { 
                     padding-top: 10px; 
                     padding-bottom: 10px; 
-                    margin-bottom: 12px;
+                    margin-bottom: 18px;
                 }
                 </style>
             """,
