@@ -918,7 +918,11 @@ def main_dashboard():
                 """
                 <style>
                 div[data-testid="stRadio"] > label { font-weight: bold; margin-bottom: 8px; }
-                div[data-testid="stRadio"] div[role="radiogroup"] > label { padding-top: 10px; padding-bottom: 10px; }
+                div[data-testid="stRadio"] div[role="radiogroup"] > label { 
+                    padding-top: 10px; 
+                    padding-bottom: 10px; 
+                    margin-bottom: 12px;
+                }
                 </style>
             """,
                 unsafe_allow_html=True,
