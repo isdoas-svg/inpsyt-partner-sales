@@ -915,11 +915,19 @@ def main_dashboard():
         if user["role"] in ["super_admin", "hq_admin"]:
             st.subheader("⚙️ 관리자 메뉴")
             st.markdown(
-               """
+               
+            """
                 <style>
+                /* 1. '관리자 메뉴' 서브헤더 위쪽 간격 줄이기 */
+                div[data-testid="stSubheader"] {
+                    margin-top: -15px !important; /* 이 숫자를 더 음수(-20px 등)로 낮추면 선과 더 가까워집니다 */
+                    padding-top: 0px !important;
+                }
+
+
                 /* 라디오 그룹 전체의 아이템 사이 간격(flex gap) 강제 부여 */
                 div[data-testid="stRadio"] > div[role="radiogroup"] {
-                    gap: 20px !important; /* 원하시는 간격 수치(px)로 조절 가능 */
+                    gap: 15px !important; /* 원하시는 간격 수치(px)로 조절 가능 */
                 }
 
                 /* 각 메뉴 항목 내부 여백 및 텍스트 크기 조절 */
