@@ -916,32 +916,32 @@ def main_dashboard():
         if user["role"] in ["super_admin", "hq_admin"]:
             # 2. st.subheader 대신 HTML 태그로 직접 제목 출력 (+ CSS 설정)
             st.markdown(
-                """
-                <style>
-                /* 타이틀 마진 최소화 */
-                .admin-menu-title {
-                    font-size: 1.1rem;
-                    font-weight: 600;
-                    margin-top: 0px !important;
-                    margin-bottom: 8px !important;
-                }
+               """
+        <style>
+        /* 타이틀 마진 최소화 */
+        .admin-menu-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-top: 0px !important;
+            margin-bottom: 8px !important;
+        }
 
-                /* 라디오 그룹 아이템 사이 간격 */
-                div[data-testid="stRadio"] > div[role="radiogroup"] {
-                    gap: 10px !important;
-                }
+        /* 1. 라디오 그룹 아이템 사이 외부 간격 */
+        div[data-testid="stRadio"] > div[role="radiogroup"] {
+            gap: 4px !important; /* 메뉴와 메뉴 사이 사이 공간 (필요시 0px~8px 조절) */
+        }
 
-                /* 각 메뉴 항목 내부 여백 */
-                div[data-testid="stRadio"] div[role="radiogroup"] label {
-                    padding-top: 5px !important;
-                    padding-bottom: 5px !important;
-                }
-                </style>
-                
-                <div class="admin-menu-title">⚙️ 관리자 메뉴</div>
-            """,
-                unsafe_allow_html=True,
-            )
+        /* 2. 각 메뉴 항목 내부 여백(패딩) 및 외부 마진 축소 */
+        div[data-testid="stRadio"] div[role="radiogroup"] label {
+            padding-top: 2px !important;   /* 위쪽 내부 여백 줄임 */
+            padding-bottom: 2px !important; /* 아래쪽 내부 여백 줄임 */
+            margin-top: 0px !important;
+            margin-bottom: 0px !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
             admin_menu_options = [
                 "📈 매출 분석 대시보드",
