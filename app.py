@@ -922,7 +922,7 @@ def main_dashboard():
                 .admin-menu-title {
                     font-size: 1.1rem;
                     font-weight: 600;
-                    margin-top: -15px !important; /* 이 숫자로 구분선과의 간격을 조절하세요 (-25px, -30px 등) */
+                    margin-top: -40px !important; /* 이 숫자로 구분선과의 간격을 조절하세요 (-25px, -30px 등) */
                     margin-bottom: 10px !important;
                 }
 
