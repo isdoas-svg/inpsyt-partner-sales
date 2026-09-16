@@ -909,7 +909,7 @@ def main_dashboard():
             st.rerun()
 
         # 1. 위쪽 강제 여백 제거 (줄바꿈 태그 없이 <hr> 마진만 좁힘)
-        st.markdown("<hr style='margin-top: 5px; margin-bottom: 10px;'>", unsafe_allow_html=True)
+        st.markdown("<hr style='margin-top: 10px; margin-bottom: 20px;'>", unsafe_allow_html=True)
 
         menu_selection = "📈 매출 분석 대시보드"
         
@@ -928,7 +928,7 @@ def main_dashboard():
 
                 /* 라디오 그룹 아이템 사이 간격 */
                 div[data-testid="stRadio"] > div[role="radiogroup"] {
-                    gap: 15px !important;
+                    gap: 10px !important;
                 }
 
                 /* 각 메뉴 항목 내부 여백 */
