@@ -917,13 +917,18 @@ def main_dashboard():
             st.markdown(
                
             """
-                <style>
-                /* 1. '관리자 메뉴' 서브헤더 위쪽 간격 줄이기 */
-                div[data-testid="stSubheader"] {
-                    margin-top: -30px !important; /* 이 숫자를 더 음수(-20px 등)로 낮추면 선과 더 가까워집니다 */
+              <style>
+                /* 사이드바 내 서브헤더 및 텍스트 상단 여백 제거 */
+                section[data-testid="stSidebar"] [data-testid="stSubheader"] {
+                    margin-top: -35px !important; /* 더 붙이고 싶다면 -45px 등 음수를 늘려주세요 */
                     padding-top: 0px !important;
                 }
-
+                
+                /* 서브헤더 자체 <h3> 태그의 기본 마진도 강제 축소 */
+                section[data-testid="stSidebar"] [data-testid="stSubheader"] h3 {
+                    margin-top: 0px !important;
+                    padding-top: 0px !important;
+                }
 
                 /* 라디오 그룹 전체의 아이템 사이 간격(flex gap) 강제 부여 */
                 div[data-testid="stRadio"] > div[role="radiogroup"] {
