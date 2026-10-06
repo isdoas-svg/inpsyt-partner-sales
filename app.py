@@ -76,14 +76,13 @@ def load_branch_info_data():
         except Exception as e:
             return pd.DataFrame()
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=60, show_spinner="Running...")
 def load_persistent_db():
     """Google Sheets에서 계정, 기관 및 목표 매출 DB를 불러옵니다."""
     users = {}
     orgs = DEFAULT_ORGS.copy()
     targets = {}
 
-    with st.spinner("Running..."):
         try:
             sheet_url = st.secrets["connections"]["gsheets"].get("spreadsheet")
             df_users = conn.read(spreadsheet=sheet_url, worksheet="users", ttl=60) if sheet_url else conn.read(worksheet="users", ttl=60)
@@ -941,7 +940,7 @@ def main_dashboard():
         </style>
         """,
         unsafe_allow_html=True,
-    )
+    )  
 
             admin_menu_options = [
                 "📈 매출 분석 대시보드",
