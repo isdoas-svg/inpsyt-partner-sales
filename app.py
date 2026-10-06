@@ -76,54 +76,53 @@ def load_branch_info_data():
         except Exception as e:
             return pd.DataFrame()
 
-@st.cache_data(ttl=60, show_spinner="Running...")
+@st.cache_data(ttl=60)
 def load_persistent_db():
     """Google Sheets에서 계정, 기관 및 목표 매출 DB를 불러옵니다."""
     users = {}
     orgs = DEFAULT_ORGS.copy()
     targets = {}
 
-    try:
-        sheet_url = st.secrets["connections"]["gsheets"].get("spreadsheet")
-        df_users = conn.read(spreadsheet=sheet_url, worksheet="users", ttl=60) if sheet_url else conn.read(worksheet="users", ttl=60)
-        
+    with st.spinner("Running..."):
         try:
-            df_targets = conn.read(spreadsheet=sheet_url, worksheet="targets", ttl=60) if sheet_url else conn.read(worksheet="targets", ttl=60)
-            if df_targets is not None and not df_targets.empty:
-                for _, row in df_targets.iterrows():
-                    code = str(row["org_code"]).strip().replace(".0", "")
-                    year = int(float(row["year"]))
-                    amt = int(float(row["target_amount"]))
-                    targets[(code, year)] = amt
-        except Exception:
-            pass
-
-        if df_users is not None and not df_users.empty:
-            df_users = df_users.fillna("")
+            sheet_url = st.secrets["connections"]["gsheets"].get("spreadsheet")
+            df_users = conn.read(spreadsheet=sheet_url, worksheet="users", ttl=60) if sheet_url else conn.read(worksheet="users", ttl=60)
             
-            for _, row in df_users.iterrows():
-                def clean_str(val):
-                    s = str(val).strip()
-                    if s.endswith(".0"):
-                        return s[:-2]
-                    return s
+            try:
+                df_targets = conn.read(spreadsheet=sheet_url, worksheet="targets", ttl=60) if sheet_url else conn.read(worksheet="targets", ttl=60)
+                if df_targets is not None and not df_targets.empty:
+                    for _, row in df_targets.iterrows():
+                        code = str(row["org_code"]).strip().replace(".0", "")
+                        year = int(float(row["year"]))
+                        amt = int(float(row["target_amount"]))
+                        targets[(code, year)] = amt
+            except Exception:
+                pass
 
-                uid = clean_str(row["username"])
-                if not uid:
-                    continue
-                    
-                users[uid] = {
-                    "password": clean_str(row["password"]),
-                    "role": clean_str(row["role"]),
-                    "org_code": clean_str(row["org_code"]),
-                }
+            if df_users is not None and not df_users.empty:
+                df_users = df_users.fillna("")
                 
-                if row["role"] == "user" and row.get("org_name"):
-                    orgs[clean_str(row["org_code"])] = {"org_name": clean_str(row["org_name"])}
-    except Exception as e:
-        st.warning(f"⚠️ Google Sheets 데이터를 불러오는 중 오류 발생 (기본 설정으로 구동): {e}")
+                for _, row in df_users.iterrows():
+                    def clean_str(val):
+                        s = str(val).strip()
+                        if s.endswith(".0"):
+                            return s[:-2]
+                        return s
 
-    return users, orgs, targets
+                    uid = clean_str(row["username"])
+                    if not uid:
+                        continue
+                        
+                    users[uid] = {
+                        "password": clean_str(row["password"]),
+                        "role": clean_str(row["role"]),
+                        "org_code": clean_str(row["org_code"]),
+                    }
+                    
+                    if row["role"] == "user" and row.get("org_name"):
+                        orgs[clean_str(row["org_code"])] = {"org_name": clean_str(row["org_name"])}
+        except Exception as e:
+            st.warning(f"⚠️ Google Sheets 데이터를 불러오는 중 오류 발생 (기본 설정으로 구동): {e}")
 
     if "admin" not in users:
         users["admin"] = {
