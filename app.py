@@ -269,8 +269,8 @@ def login_screen():
         st.markdown("---")
         
         with st.form(key="login_form"):
-            username = st.text_input("아이디 (ID)", key="login_username_input").strip()
-            password = st.text_input("비밀번호 (Password)", type="password", key="login_password_input").strip()
+            username = st.text_input("아이디 (ID)", key="login_username_input", autocomplete="username").strip()
+            password = st.text_input("비밀번호 (Password)", type="password", key="login_password_input", autocomplete="current-password").strip()
             submit_login = st.form_submit_button("로그인", use_container_width=True, type="primary")
         
         if submit_login:
